@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.venv/
+data/coco/
+reports/dry_run/

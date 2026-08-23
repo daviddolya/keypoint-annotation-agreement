@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""Отрисовка расхождений по скелетам (P4d, оснастка к шагу 6).
+
+Число «OKS 0.30» не говорит ничего, пока не видно, что именно разошлось:
+промах по всем точкам сразу, одна улетевшая рука или перепутанные стороны.
+Три вещи, каждая отвечает на свой вопрос.
+
+    пары      вырезка вокруг человека с обоими скелетами. Синий — эталон,
+              оранжевый — твой. Точка закрашена, если помечена видимой,
+              и пустая, если помечена невидимой. Подпись — OKS пары
+    суставы   столбики PCK по каждому из 17 суставов: где именно промах
+    флаги     столбики расхождений по флагу видимости на каждом суставе:
+              где именно вы с эталоном разошлись не в координате, а в том,
+              видно точку или нет
+
+    .venv/bin/python tools/render_skeletons.py \
+        --gt data/coco/person_keypoints_val2017.json \
+        --mine annotation/my_labels/person_keypoints_default.json \
+        --selection data/subset/selection_keypoints.json \
+        --images data/subset/frames --out reports/review
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFont
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
+
+from keypoints import (ABSENT, COCO_KEYPOINTS, SKELETON, VISIBLE,  # noqa: E402
+                       Person, load_coco_keypoints)
+from oks import evaluate, oks  # noqa: E402
+
+REF_COLOR = (60, 130, 246)
+MY_COLOR = (249, 115, 22)
+BAD = (220, 38, 38)
+OK = (34, 160, 90)
+
+FONT_CANDIDATES = [
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+]
+
+
+def load_font(size: int) -> tuple[object, bool]:
+    """Возвращает (шрифт, поддерживает ли кириллицу). Встроенный растровый
+    шрифт PIL кириллицы не знает — подписи вышли бы квадратами."""
+    for path in FONT_CANDIDATES:
+        if Path(path).exists():
+            try:
+                return ImageFont.truetype(path, size), True
+            except OSError:
+                continue
+    return ImageFont.load_default(), False
+
+
+def draw_person(d: ImageDraw.ImageDraw, p: Person, color, scale: float,
+                ox: float, oy: float, radius: int = 4) -> None:
+    def at(i):
+        x, y, v = p.points[i]
+        return ((x - ox) * scale, (y - oy) * scale, v)
+
+    for a, b in SKELETON:
+        xa, ya, va = at(a)
+        xb, yb, vb = at(b)
+        if va == ABSENT or vb == ABSENT:
+            continue
+        d.line([xa, ya, xb, yb], fill=color, width=2)
+    for i in range(17):
+        x, y, v = at(i)
+        if v == ABSENT:
+            continue
+        box = [x - radius, y - radius, x + radius, y + radius]
+        if v == VISIBLE:
+            d.ellipse(box, fill=color, outline=color)
+        else:
+            d.ellipse(box, fill=None, outline=color, width=2)
+
+
+def render_pair(image_path: Path, gt: Person, mine: Person, value: float,
+                out: Path, font, cyrillic: bool, target: int = 520) -> None:
+    img = Image.open(image_path).convert("RGB")
+    xs, ys = [], []
+    for p in (gt, mine):
+        x, y, w, h = p.kp_bbox()
+        xs += [x, x + w]
+        ys += [y, y + h]
+    pad = 0.18 * max(max(xs) - min(xs), max(ys) - min(ys), 40)
+    x0 = max(0, min(xs) - pad)
+    y0 = max(0, min(ys) - pad)
+    x1 = min(img.width, max(xs) + pad)
+    y1 = min(img.height, max(ys) + pad)
+    crop = img.crop((int(x0), int(y0), int(x1), int(y1)))
+    scale = target / max(crop.width, crop.height)
+    crop = crop.resize((max(1, int(crop.width * scale)),
+                        max(1, int(crop.height * scale))))
+
+    canvas = Image.new("RGB", (crop.width, crop.height + 28), (255, 255, 255))
+    canvas.paste(crop, (0, 28))
+    d = ImageDraw.Draw(canvas)
+    draw_person(d, gt, REF_COLOR, scale, x0, y0 - 28 / scale)
+    draw_person(d, mine, MY_COLOR, scale, x0, y0 - 28 / scale)
+    caption = (f"OKS {value:.3f}  |  эталон синий, моё оранжевое  |  "
+               f"пустая точка — помечена невидимой" if cyrillic
+               else f"OKS {value:.3f} | ref blue, mine orange")
+    d.text((6, 6), caption, fill=(20, 20, 20), font=font)
+    canvas.save(out, quality=92)
+
+
+def render_joints(per_joint: dict, out: Path, font, cyrillic: bool,
+                  mult: float) -> None:
+    rows = [(COCO_KEYPOINTS[i], per_joint[i][0], per_joint[i][1]) for i in range(17)]
+    rows = [(n, h, t) for n, h, t in rows if t]
+    rows.sort(key=lambda r: r[1] / r[2])
+    w, row_h, left = 640, 26, 150
+    img = Image.new("RGB", (w, row_h * len(rows) + 44), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    title = (f"PCK@{mult:g}σ по суставам" if cyrillic else f"PCK@{mult:g}sigma by joint")
+    d.text((10, 10), title, fill=(20, 20, 20), font=font)
+    bar_w = w - left - 90
+    for k, (name, hit, tot) in enumerate(rows):
+        y = 40 + k * row_h
+        share = hit / tot
+        d.text((10, y + 4), name, fill=(40, 40, 40), font=font)
+        d.rectangle([left, y + 4, left + bar_w, y + 18], fill=(235, 235, 235))
+        d.rectangle([left, y + 4, left + bar_w * share, y + 18],
+                    fill=OK if share >= 0.8 else BAD)
+        d.text((left + bar_w + 8, y + 4), f"{share:.2f}  n={tot}",
+               fill=(60, 60, 60), font=font)
+    img.save(out)
+
+
+def render_flags(pairs, out: Path, font, cyrillic: bool) -> None:
+    """Доля расхождений по флагу на каждом суставе.
+
+    Слот учитывается, если хотя бы одна сторона его разметила: слот, который
+    обе стороны пропустили, — согласие ни о чём.
+    """
+    diff = [0] * 17
+    total = [0] * 17
+    for g, m in pairs:
+        for i, ((_, _, gv), (_, _, mv)) in enumerate(zip(g.points, m.points)):
+            if gv == ABSENT and mv == ABSENT:
+                continue
+            total[i] += 1
+            if gv != mv:
+                diff[i] += 1
+    rows = [(COCO_KEYPOINTS[i], diff[i], total[i]) for i in range(17) if total[i]]
+    rows.sort(key=lambda r: -r[1] / r[2])
+
+    w, row_h, left = 640, 26, 150
+    img = Image.new("RGB", (w, row_h * len(rows) + 44), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    title = ("расхождение по флагу видимости, доля слотов" if cyrillic
+             else "visibility flag disagreement, share of slots")
+    d.text((10, 10), title, fill=(20, 20, 20), font=font)
+    bar_w = w - left - 90
+    for k, (name, bad, tot) in enumerate(rows):
+        y = 40 + k * row_h
+        share = bad / tot
+        d.text((10, y + 4), name, fill=(40, 40, 40), font=font)
+        d.rectangle([left, y + 4, left + bar_w, y + 18], fill=(235, 235, 235))
+        d.rectangle([left, y + 4, left + bar_w * share, y + 18],
+                    fill=BAD if share >= 0.1 else OK)
+        d.text((left + bar_w + 8, y + 4), f"{share:.2f}  n={tot}",
+               fill=(60, 60, 60), font=font)
+    img.save(out)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--gt", type=Path, required=True)
+    ap.add_argument("--mine", type=Path, required=True)
+    ap.add_argument("--selection", type=Path, required=True)
+    ap.add_argument("--images", type=Path, required=True)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--worst", type=int, default=8)
+    ap.add_argument("--min-kp", type=int, default=8)
+    ap.add_argument("--min-area", type=float, default=4000.0)
+    ap.add_argument("--pck-mult", type=float, default=1.0)
+    args = ap.parse_args()
+
+    images = set(json.loads(args.selection.read_text(encoding="utf-8"))["files"])
+    gt, _ = load_coco_keypoints(args.gt, images=images,
+                                min_kp=args.min_kp, min_area=args.min_area)
+    mine, _ = load_coco_keypoints(args.mine)
+    res = evaluate(gt, mine, "bbox", 0.3, args.pck_mult)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    font, cyrillic = load_font(15)
+    if not cyrillic:
+        print("TrueType-шрифт не найден: подписи будут латиницей")
+
+    scored = [(g, m, oks(g, m)) for g, m in res["pairs"]]
+    scored = sorted([t for t in scored if t[2] is not None], key=lambda t: t[2])
+    made = []
+    for k, (g, m, value) in enumerate(scored[:args.worst], 1):
+        name = f"{k:02d}_{Path(g.image).stem}_gt{g.ident}.jpg"
+        render_pair(args.images / g.image, g, m, value, args.out / name,
+                    font, cyrillic)
+        made.append({"file": name, "image": g.image, "gt_id": g.ident,
+                     "my_id": m.ident, "oks": value})
+    render_joints(res["pck_per_joint"], args.out / "pck_by_joint.png",
+                  font, cyrillic, args.pck_mult)
+    render_flags(res["pairs"], args.out / "flag_by_joint.png", font, cyrillic)
+
+    (args.out / "pairs_manifest.json").write_text(
+        json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"пар отрисовано {len(made)}, плюс pck_by_joint.png и flag_by_joint.png")
+    print(f"каталог: {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

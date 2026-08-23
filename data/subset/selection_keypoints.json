@@ -1,0 +1,31 @@
+{
+  "source": "COCO val2017, person_keypoints",
+  "task": "разметка скелетов, 17 точек COCO",
+  "filters": {
+    "people_per_frame": [
+      3,
+      4
+    ],
+    "min_keypoints": 8,
+    "min_area": 4000.0,
+    "excluded_subset": "/home/eee/Documents/Projects/detection-annotation-quality/data/subset/selection.json"
+  },
+  "seed": 7,
+  "count": 14,
+  "files": [
+    "000000023899.jpg",
+    "000000062355.jpg",
+    "000000080340.jpg",
+    "000000087144.jpg",
+    "000000100624.jpg",
+    "000000132544.jpg",
+    "000000179642.jpg",
+    "000000233771.jpg",
+    "000000269316.jpg",
+    "000000284445.jpg",
+    "000000474078.jpg",
+    "000000499031.jpg",
+    "000000551820.jpg",
+    "000000559547.jpg"
+  ]
+}
