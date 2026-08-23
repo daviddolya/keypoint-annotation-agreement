@@ -1,92 +1,101 @@
-# Рабочие заметки A4 — keypoints
+# Working notes
 
-## Шаг 1 — OKS
+## Step 1 -- OKS
 
-2026-08-23, `common/oks.py --selftest`: все четыре случая сошлись.
-OKS 1.0000 / 0.6065 / 0.0767 / 1.0000, согласие по флагу в четвёртом случае 0.867.
+2026-08-23, `common/oks.py --selftest`: all four cases match.
+OKS 1.0000 / 0.6065 / 0.0767 / 1.0000; flag agreement in the fourth case 0.867.
 
-Строка предсказания перед запуском пропущена сознательно.
+What follows from that (my own words):
 
-Что из этого следует (пишу сам):
+## Step 2 -- the price of a pixel
 
-## Шаг 2 — цена пикселя
+The `tools/oks_sensitivity.py` run on my own subset: 47 people, an 8 px offset
+of every point gives mean OKS 0.817; small people 0.705, large ones 0.922;
+at 8 px the nose retains 0.435 of its contribution and the hip 0.952.
 
-Прогон `tools/oks_sensitivity.py` на своём наборе сошёлся с таблицами задания:
-47 человек, сдвиг 8 px → средний OKS 0.817; мелкие 0.705, крупные 0.922;
-нос при 8 px оставляет 0.435, бедро 0.952.
+**Decision 1. Lower area threshold -- 4000 px².** A person smaller than that
+is not annotated, and this is written into the guidelines. Rationale: the 14
+frames hold 94 person figures, and flawless hand work (a 2 px tremor) caps OKS
+at 0.68 below 1000 px², 0.84 between 1000 and 2000, 0.92 between 2000 and 4000,
+and 0.96+ above 4000. Below the threshold the metric would measure the
+resolution of the picture, not my accuracy. The COCO ground truth itself
+annotated none of the eleven people below 1000 px². The threshold coincides
+with the frame-selection filter and with `--min-area` of the comparison
+script, so the report states a single number.
 
-**Решение 1. Нижний порог площади — 4000 px².** Человек мельче не размечается,
-и это записано в инструкции. Основание: в 14 кадрах 94 фигуры человека, и
-безупречная работа рукой (дрожь 2 px) даёт на них потолок OKS
-0.68 ниже 1000 px², 0.84 на 1000–2000, 0.92 на 2000–4000 и 0.96+ от 4000.
-Ниже порога метрика мерила бы разрешение картинки, а не мою аккуратность.
-Сам эталон COCO ниже 1000 px² не разметил ни одного человека из одиннадцати.
-Порог совпадает с фильтром отбора кадров и с `--min-area` скрипта сравнения,
-то есть в отчёте называется одним числом.
+**Decision 2. Zoom on the face and the wrists.** Nose, eyes and ears have a
+one-sigma tolerance of 6-8 px on a person of median size: an 8 px error leaves
+0.435 of the nose contribution and 0.632 of the ear. Those get placed zoomed
+in. Wrists (15 px tolerance) get zoomed when needed -- they are occluded more
+often. Shoulders, hips and ankles (19-26 px) are placed at normal zoom: the
+same error costs 0.91-0.95 there, and the extra minute does not pay off.
 
-**Решение 2. Зум — лицо и запястья.** Нос, глаза, уши имеют допуск в одну сигму
-6–8 px на человеке медианного размера: промах 8 px оставляет от вклада точки
-0.435 по носу и 0.632 по уху. Их ставлю с увеличением. Запястья (допуск 15 px)
-зумлю по необходимости — они чаще перекрыты. Плечи, бёдра, лодыжки
-(допуск 19–26 px) ставлю с общего плана: там 8 px стоят 0.91–0.95,
-и лишняя минута себя не окупает.
+## Step 5 -- computing agreement
 
-## Шаг 5 — расчёт согласия
+`annotation/keypoint_agreement.py`, default filters (min-kp 8, min-area 4000,
+matching by the keypoint box, threshold 0.3). Numbers only, conclusions in
+step 6.
 
-Прогон `annotation/keypoint_agreement.py`, фильтры по умолчанию (min-kp 8, min-area 4000,
-сопоставление по рамке из точек, порог 0.3). Числа, без выводов — выводы на шаге 6.
+14 frames; 47 people in the ground truth, 47 of mine. 43 pairs, 4 unmatched on
+each side: of my unmatched, 2 were dropped by the ground-truth filter and 2
+correspond to nothing in the ground truth. Matching by OKS produced the same
+number of pairs (43) at OKS 0.899 against 0.895 -- a slightly different
+partition, but the worst pairs did not drop out of the count.
 
-Кадров 14; эталонных людей 47, своих 47. Пар 43, без пары по 4 с каждой стороны:
-из моих без пары 2 отброшены фильтром эталона, 2 не соответствуют ничему в эталоне.
-Сопоставление по OKS дало то же число пар (43) при OKS 0.899 против 0.895 — разбиение
-слегка другое, но худшие пары из счёта не выпали.
+OKS over common points 0.895 (median 0.916, minimum 0.404), OKS COCO-style
+0.868, PCK@1 sigma 0.954.
 
-OKS по общим точкам 0.895 (медиана 0.916, минимум 0.404), OKS COCO-style 0.868,
-PCK@1σ 0.954.
+Worst joints by PCK: right_hip 0.90 (13.6 px), left_wrist 0.91 (11.1 px),
+right_shoulder 0.93 (7.9 px). Best: eyes, ears and nose (PCK 0.96-1.00,
+offsets 1.8-3.1 px).
 
-Худшие суставы по PCK: right_hip 0.90 (промах 13.6 px), left_wrist 0.91 (11.1 px),
-right_shoulder 0.93 (7.9 px). Лучшие — глаза, уши, нос (PCK 0.96–1.00, промах 1.8–3.1 px).
+Visibility-flag agreement 0.822, Cohen's kappa 0.345, 617 slots.
 
-Согласие по флагу видимости 0.822, каппа Коэна 0.345, слотов 617.
-
-| эталон \ моё | v=0 | v=1 | v=2 |
+| GT \ mine | v=0 | v=1 | v=2 |
 |---|---|---|---|
 | v=0 | 0 | 23 | 13 |
 | v=1 | 8 | 25 | 19 |
 | v=2 | 8 | 39 | 482 |
 
-OKS по размеру: мелкие 0.895 (11 пар), средние 0.902 (22), крупные 0.879 (10).
+OKS by size: small 0.895 (11 pairs), medium 0.902 (22), large 0.879 (10).
 
-Худшие пары: 000000551820.jpg #1247453 ↔ #43 OKS 0.404 (12/12 точек);
-000000233771.jpg #220854 ↔ #25 OKS 0.669; 000000100624.jpg #500399 ↔ #12 OKS 0.774;
-000000023899.jpg #448028 ↔ #1 OKS 0.798; 000000080340.jpg #542289 ↔ #8 OKS 0.822.
+Worst pairs: 000000551820.jpg #1247453 <-> #43 OKS 0.404 (12/12 points);
+000000233771.jpg #220854 <-> #25 OKS 0.669; 000000100624.jpg #500399 <-> #12
+OKS 0.774; 000000023899.jpg #448028 <-> #1 OKS 0.798; 000000080340.jpg
+#542289 <-> #8 OKS 0.822.
 
-Метрики: `reports/keypoint_metrics.json`.
+Metrics: `reports/keypoint_metrics.json`.
 
-## Шаг 6 — систематические расхождения
+## Step 6 -- systematic disagreements
 
-Три штуки, каждое по форме «число — объём — вывод».
+Three of them, each in the form "number -- volume -- conclusion".
 
-**1. Перепутанные стороны, одна фигура.** `000000551820.jpg`, эталон #1247453: OKS 0.404,
-при перестановке лево/право поднимается до 0.880. Проверено перестановкой на всех 43 парах —
-улучшает ровно у одной, у остальных 42 ухудшает, то есть систематической путаницы нет.
-Объём: 1 фигура из 43, цена общего OKS 0.011 (0.895 вместо 0.906).
-Вывод: инструкцией не чинится — правило про стороны в версии 1 есть, и оно верное,
-не выполнена была проверка по цвету скелета перед сдачей. Разметку не правлю:
-исправлять после сравнения с эталоном — это подгонка под эталон. В отчёте названо числом.
+**1. Swapped sides, one figure.** `000000551820.jpg`, ground truth #1247453:
+OKS 0.404, rising to 0.880 when left and right are swapped back. Tested by
+swapping across all 43 pairs -- it improves exactly one and makes the other 42
+worse, so there is no systematic confusion. Volume: 1 figure of 43, cost 0.011
+of the overall OKS (0.895 instead of 0.906). Conclusion: not fixable by the
+guidelines -- the rule about sides was there in version 1 and it is correct;
+what was not done was the colour check before handing the figure in. The
+annotation stays as it is: correcting it after comparing against the ground
+truth would be fitting to the ground truth. The report states the number.
 
-**2. Уши: 14 точек.** Эталон ухо, скрытое головой или волосами, не размечает вовсе
-(41% ушей в val2017 имеют v=0), я ставил occluded. Это 14 расхождений по флагу из 110,
-то есть 13%. Вывод: чинится инструкцией, беру правило COCO — ухо, которого не видно,
-не размечаю. Идёт в версию 2.
+**2. Ears: 14 points.** The ground truth does not annotate an ear hidden by
+the head or the hair at all (41% of ears in val2017 carry v=0); I marked them
+occluded. That is 14 of the 110 flag disagreements, i.e. 13%. Conclusion:
+fixable by the guidelines, and I adopt the COCO rule -- an ear I cannot see is
+not annotated. Goes into version 2.
 
-**3. Граница «видно / не видно»: 58 точек.** 39 точек я пометил occluded там, где эталон
-считает видимым, и 19 наоборот (из них 8 — лодыжки). Это 53% всех расхождений по флагу.
-Вывод: инструкцией не чинится. Граница субъективна у любого разметчика, и честнее назвать
-каппу 0.345 и матрицу 3×3, чем обещать починку. Косвенное подтверждение: на точках,
-которые эталон пометил невидимыми, мой промах 11.0 px против 7.8 на видимых,
-PCK 0.864 против 0.962 — догадка о скрытом суставе объективно дороже.
+**3. The visible / not-visible boundary: 58 points.** I marked 39 points
+occluded where the ground truth considers them visible, and 19 the other way
+round (8 of those are ankles). That is 53% of all flag disagreements.
+Conclusion: not fixable by the guidelines. The boundary is subjective for any
+annotator, and stating kappa 0.345 and the 3x3 matrix is more honest than
+promising a fix. Indirect confirmation: on points the ground truth marked as
+not visible my offset is 11.0 px against 7.8 px on visible ones, PCK 0.864
+against 0.962 -- guessing at a hidden joint is objectively more expensive.
 
-**Чего не случилось.** Край кадра расхождения не дал: из 36 точек, поставленных там,
-где эталон не ставит, у границы лежит одна. Правило было объявлено до разметки — сравнить
-с A3, где та же ветка амодальности дала 72 пропуска из 77.
+**What did not happen.** The image border produced no disagreement: of the 36
+points placed where the ground truth places nothing, exactly one sits near the
+border. The rule was stated before annotating -- compare with the tracking
+stage, where the same amodality question produced 72 of 77 misses.

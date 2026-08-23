@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Репетиция конвейера до разметки: подставная «своя» разметка (P4d, шаг 5).
+"""A rehearsal of the pipeline before annotating: a stand-in "own" annotation.
 
-Полтора часа разметки, а потом выясняется, что расчёт падает или отрисовка
-рисует не то, — плохой порядок. Скрипт берёт эталон и портит его известным
-образом, изображая правдоподобного разметчика:
+Spending an hour and a half annotating and only then discovering that the
+computation crashes or the rendering draws the wrong thing is a bad order of
+operations. This script takes the ground truth and corrupts it in a known
+way, impersonating a plausible annotator:
 
-  * дрожь руки — шум примерно в половину сигмы на каждой точке;
-  * двум людям перепутаны стороны;
-  * части невидимых точек проставлен флаг «видна»;
-  * у людей, обрезанных краем кадра, часть точек досочинена за границу —
-    то есть применена конвенция, противоположная COCO;
-  * один человек не размечен вовсе, один лишний размечен.
+  * a shaky hand -- noise of roughly half a sigma on every point;
+  * two people get their left and right sides swapped;
+  * some invisible points are marked as visible;
+  * for people cropped by the image border, some points are invented beyond
+    the border -- i.e. the convention opposite to COCO is applied;
+  * one person is not annotated at all, one extra person is.
 
-Числа, которые получатся, к твоей работе отношения не имеют. Смысл один:
-убедиться, что конвейер работает и картинки открываются.
+The numbers this produces have nothing to do with real work. The only point
+is to confirm that the pipeline runs and the pictures open.
 
     .venv/bin/python tools/dry_run.py --gt data/coco/person_keypoints_val2017.json \
         --selection data/subset/selection_keypoints.json --out reports/dry_run
@@ -40,7 +41,7 @@ def main() -> int:
     ap.add_argument("--min-kp", type=int, default=8)
     ap.add_argument("--min-area", type=float, default=4000.0)
     ap.add_argument("--jitter", type=float, default=0.45,
-                    help="шум в долях сигмы сустава")
+                    help="noise in fractions of the joint sigma")
     ap.add_argument("--seed", type=int, default=11)
     args = ap.parse_args()
 
@@ -51,7 +52,7 @@ def main() -> int:
 
     mine: list[Person] = []
     for n, p in enumerate(gt):
-        if n == 5:                                   # одного не заметил вовсе
+        if n == 5:                                   # missed one person entirely
             continue
         s = math.sqrt(p.area)
         w, h = sizes[p.image]
@@ -59,7 +60,7 @@ def main() -> int:
         for i, (x, y, v) in enumerate(p.points):
             if v == ABSENT:
                 if p.touches_edge(w, h) and i >= 13 and rnd.random() < 0.5:
-                    # конвенция, противоположная COCO: досочиняю за краем кадра
+                    # the convention opposite to COCO: invent beyond the border
                     pts.append((p.bbox[0] + p.bbox[2] / 2,
                                 p.bbox[1] + p.bbox[3] + 20, HIDDEN))
                 else:
@@ -68,7 +69,7 @@ def main() -> int:
             jitter = args.jitter * s * K[i]
             nv = VISIBLE if (v == HIDDEN and rnd.random() < 0.35) else v
             pts.append((x + rnd.gauss(0, jitter), y + rnd.gauss(0, jitter), nv))
-        if n in (2, 17):                             # двоим перепутал стороны
+        if n in (2, 17):                             # swapped sides on two people
             swapped = list(pts)
             for i, j in LR_PAIRS:
                 swapped[i], swapped[j] = pts[j], pts[i]
@@ -76,7 +77,7 @@ def main() -> int:
         mine.append(Person(image=p.image, ident=1000 + n, points=pts,
                            area=p.area, bbox=p.bbox))
 
-    extra = gt[0]                                    # один лишний
+    extra = gt[0]                                    # one extra person
     mine.append(Person(image=extra.image, ident=9001, area=extra.area,
                        bbox=extra.bbox,
                        points=[(x + 300, y, v) for x, y, v in extra.points]))
@@ -84,8 +85,8 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     dest = args.out / "person_keypoints_fake.json"
     save_coco_keypoints(mine, sizes, dest)
-    print("ЭТО ПОДСТАВНАЯ РАЗМЕТКА, А НЕ ТВОЯ. Числа по ней ничего не значат.")
-    print(f"эталонных людей {len(gt)}, подставных {len(mine)}")
+    print("THIS IS A STAND-IN ANNOTATION, NOT A REAL ONE. Its numbers mean nothing.")
+    print(f"ground-truth people {len(gt)}, stand-in people {len(mine)}")
     print(f"{dest}")
     return 0
 

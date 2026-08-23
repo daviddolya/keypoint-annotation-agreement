@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Цена одной фразы в инструкции: три конвенции на одних координатах (P4d, шаг 3).
+"""The price of one sentence in the guidelines: three conventions, one set
+of coordinates.
 
-Берёт эталон и делает из него три «разметки», у которых КООРДИНАТЫ ТОЧЕК
-СОВПАДАЮТ С ЭТАЛОНОМ ДО ПИКСЕЛЯ. Отличается только правило, по которому
-разметчик решает, ставить точку и какой флаг ей дать:
+Takes the ground truth and builds three "annotations" out of it whose POINT
+COORDINATES MATCH THE GROUND TRUTH TO THE PIXEL. The only difference is the
+rule by which the annotator decides whether to place a point and which flag
+to give it:
 
-  1. эталон как есть — верхняя граница, всё совпадает;
-  2. «невидимую точку не ставлю» — точки с v=1 не размечаются вовсе;
-  3. «ставлю всё, но флаг не различаю» — все размеченные точки помечены
-     как видимые.
+  1. ground truth as is -- the upper bound, everything matches;
+  2. "I do not place a point I cannot see" -- v=1 points are not annotated;
+  3. "I place everything but do not distinguish the flag" -- every annotated
+     point is marked visible.
 
-Смысл третьей строки: аккуратность идеальна, OKS равен единице, и при этом
-восьмая часть флагов расходится. Ни один расчёт по координатам этого
-не покажет — отсюда и отдельная метрика.
+The point of the third row: accuracy is perfect, OKS equals one, and yet an
+eighth of the flags disagree. No coordinate-based computation will show it,
+which is exactly why flag agreement is a metric of its own.
 
     python3 tools/visibility_baseline.py --ann data/coco/person_keypoints_val2017.json \
         --images data/subset/selection_keypoints.json
@@ -35,23 +37,23 @@ def as_is(p: Person) -> Person:
 
 
 def drop_hidden(p: Person) -> Person:
-    """Невидимую точку не ставлю: остаётся только то, что видно глазом."""
+    """I do not place an invisible point: only what the eye sees remains."""
     return Person(image=p.image, ident=p.ident, area=p.area, bbox=p.bbox,
                   points=[(x, y, v) if v == VISIBLE else (0.0, 0.0, ABSENT)
                           for x, y, v in p.points])
 
 
 def flag_all_visible(p: Person) -> Person:
-    """Ставлю всё, но про «видна или нет» не думаю."""
+    """I place everything and never think about visible-or-not."""
     return Person(image=p.image, ident=p.ident, area=p.area, bbox=p.bbox,
                   points=[(x, y, VISIBLE) if v > ABSENT else (0.0, 0.0, ABSENT)
                           for x, y, v in p.points])
 
 
 VARIANTS = [
-    ("эталон как есть", as_is),
-    ("невидимую точку не ставлю", drop_hidden),
-    ("ставлю всё, флаг всегда «видна»", flag_all_visible),
+    ("ground truth as is", as_is),
+    ("I do not place an invisible point", drop_hidden),
+    ("I place everything, flag always visible", flag_all_visible),
 ]
 
 
@@ -68,11 +70,11 @@ def main() -> int:
         images = set(json.loads(args.images.read_text(encoding="utf-8"))["files"])
     people, _ = load_coco_keypoints(args.ann, images=images,
                                     min_kp=args.min_kp, min_area=args.min_area)
-    print(f"людей {len(people)}; координаты во всех трёх вариантах "
-          "совпадают с эталоном до пикселя")
+    print(f"people {len(people)}; in all three variants the coordinates "
+          "match the ground truth to the pixel")
     print()
-    print("| конвенция | точек поставлено | OKS по общим точкам | "
-          "OKS COCO-style | согласие по флагу | каппа |")
+    print("| convention | points placed | OKS over common points | "
+          "OKS COCO-style | flag agreement | kappa |")
     print("|---|---|---|---|---|---|")
     for name, make in VARIANTS:
         mine = [make(p) for p in people]

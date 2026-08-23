@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Что лежит в эталоне: флаги, площади, край кадра (P4d, шаги 2-3).
+"""What the ground truth contains: flags, areas, the image border.
 
-Без --images считает по всему val2017 — так меряется конвенция COCO вообще,
-и это то, что нужно знать до разметки. С --images ограничивается своим
-подмножеством: смотреть после разметки, до неё это подсказка.
+Without --images it runs over all of val2017 -- that is how the COCO
+convention itself gets measured, and that is what is worth knowing before
+annotating. With --images it is restricted to one's own subset: look at that
+after annotating, before it is a hint.
 
     python3 tools/keypoint_stats.py --ann data/coco/person_keypoints_val2017.json
     python3 tools/keypoint_stats.py --ann ... --images data/subset/selection_keypoints.json
@@ -25,7 +26,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--ann", type=Path, required=True)
     ap.add_argument("--images", type=Path, default=None,
-                    help="selection_keypoints.json — ограничить своим набором")
+                    help="selection_keypoints.json -- restrict to that subset")
     ap.add_argument("--min-kp", type=int, default=8)
     ap.add_argument("--min-area", type=float, default=4000.0)
     args = ap.parse_args()
@@ -37,15 +38,15 @@ def main() -> int:
     people, sizes = load_coco_keypoints(args.ann, images=images,
                                         min_kp=args.min_kp, min_area=args.min_area)
     if not people:
-        raise SystemExit("под фильтры не попал ни один человек")
+        raise SystemExit("no person passed the filters")
 
     frames = {p.image for p in people}
-    print(f"кадров {len(frames)}, людей {len(people)} "
-          f"(фильтр: размечено ≥{args.min_kp} точек, площадь ≥{args.min_area:.0f})")
+    print(f"frames {len(frames)}, people {len(people)} "
+          f"(filter: >={args.min_kp} annotated points, area >={args.min_area:.0f})")
 
     areas = sorted(p.area for p in people)
-    print(f"площадь: мин {areas[0]:.0f}, медиана {statistics.median(areas):.0f}, "
-          f"макс {areas[-1]:.0f}")
+    print(f"area: min {areas[0]:.0f}, median {statistics.median(areas):.0f}, "
+          f"max {areas[-1]:.0f}")
 
     flags: Counter = Counter()
     per_joint: dict[int, Counter] = {i: Counter() for i in range(17)}
@@ -54,13 +55,13 @@ def main() -> int:
             flags[v] += 1
             per_joint[i][v] += 1
     slots = sum(flags.values())
-    print(f"слотов точек {slots}: v=0 не размечена {flags[0]} ({flags[0] / slots:.0%}), "
-          f"v=1 размечена и не видна {flags[1]} ({flags[1] / slots:.0%}), "
-          f"v=2 видна {flags[2]} ({flags[2] / slots:.0%})")
-    print(f"размечено точек всего {flags[1] + flags[2]}")
+    print(f"keypoint slots {slots}: v=0 not annotated {flags[0]} ({flags[0] / slots:.0%}), "
+          f"v=1 annotated but not visible {flags[1]} ({flags[1] / slots:.0%}), "
+          f"v=2 visible {flags[2]} ({flags[2] / slots:.0%})")
+    print(f"annotated points in total {flags[1] + flags[2]}")
 
     print()
-    print("| сустав | v=2 видна | v=1 не видна | v=0 не размечена |")
+    print("| joint | v=2 visible | v=1 not visible | v=0 not annotated |")
     print("|---|---|---|---|")
     order = sorted(range(17), key=lambda i: -per_joint[i][ABSENT])
     for i in order:
@@ -68,8 +69,9 @@ def main() -> int:
         n = sum(c.values())
         print(f"| {COCO_KEYPOINTS[i]} | {c[2] / n:.0%} | {c[1] / n:.0%} | {c[0] / n:.0%} |")
 
-    # Край кадра. Тот же вопрос, что решался на A3 для боксов MOT17,
-    # и ответ здесь противоположный — поэтому меряется, а не предполагается.
+    # The image border. The same question the tracking stage settled for
+    # MOT17 boxes, and the answer here is the opposite one -- which is why it
+    # is measured rather than assumed.
     outside = 0
     on_border = 0
     labeled = 0
@@ -88,18 +90,18 @@ def main() -> int:
     cut = [p for p in people if p.touches_edge(*sizes.get(p.image, (0, 0)))]
     whole = [p for p in people if not p.touches_edge(*sizes.get(p.image, (0, 0)))]
     print()
-    print(f"край кадра: размеченных точек {labeled}, "
-          f"из них за пределами изображения {outside}, "
-          f"прижато к границе (≤0.5 px) {on_border}")
-    print(f"людей, чья рамка упирается в край кадра: {len(cut)} из {len(people)}")
+    print(f"image border: annotated points {labeled}, "
+          f"of them outside the image {outside}, "
+          f"pinned to the border (<=0.5 px) {on_border}")
+    print(f"people whose box touches the image border: {len(cut)} of {len(people)}")
 
-    # Куда девается точка, которой не видно из-за края кадра: сравнение
-    # обрезанных и целиком попавших в кадр отвечает на это числом.
+    # Where a point cut off by the border ends up: comparing the cropped
+    # people with the fully visible ones answers that with a number.
     print()
-    print("| люди | сколько их | не размечено точек в среднем | "
-          "чаще всего не размечены |")
+    print("| people | count | points not annotated, mean | "
+          "most often not annotated |")
     print("|---|---|---|---|")
-    for name, group in (("обрезаны краем кадра", cut), ("целиком в кадре", whole)):
+    for name, group in (("cropped by the image border", cut), ("fully inside the frame", whole)):
         if not group:
             continue
         miss: Counter = Counter()
@@ -110,7 +112,7 @@ def main() -> int:
         top = sorted(range(17), key=lambda i: -miss[i])[:3]
         names = ", ".join(f"{COCO_KEYPOINTS[i]} {miss[i] / len(group):.0%}" for i in top)
         print(f"| {name} | {len(group)} | "
-              f"{sum(miss.values()) / len(group):.1f} из 17 | {names} |")
+              f"{sum(miss.values()) / len(group):.1f} of 17 | {names} |")
     return 0
 
 

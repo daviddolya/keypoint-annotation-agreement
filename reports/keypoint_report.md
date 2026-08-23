@@ -1,91 +1,100 @@
-# Согласованность разметки скелетов: 17 точек COCO
+# Skeleton annotation agreement: 17 COCO keypoints
 
-Этап A4 портфолио по контролю качества разметки. Разметка выполнена вручную
-в CVAT вслепую от эталона, сравнение — с `person_keypoints_val2017`.
+Stage A4 of an annotation-quality portfolio. The annotation was done by hand
+in CVAT, blind to the ground truth, and compared against
+`person_keypoints_val2017`.
 
-## 1. Что размечалось
+## 1. What was annotated
 
-14 кадров COCO val2017, отобранных по трём-четырём размеченным людям в кадре;
-кадры этапа P2 исключены из отбора, чтобы не размечать одни и те же снимки
-третий раз. 47 фигур человека, 17 точек COCO на фигуру, около 620 точек руками.
+14 COCO val2017 frames, selected for holding three or four annotated people
+each; the frames of the earlier detection stage were excluded from the
+selection so as not to annotate the same photographs a third time. 47 person
+figures, 17 COCO keypoints per figure, roughly 620 points placed by hand.
 
-Эталон до конца разметки не открывался: ни сами точки, ни их число.
+The ground truth was not opened until the annotation was finished -- neither
+the points themselves nor how many of them there were.
 
-Пороги названы заранее и под результат не подбирались:
+The thresholds were fixed in advance and never tuned to the result:
 
-| порог | значение | откуда |
+| threshold | value | where it comes from |
 |---|---|---|
-| минимум размеченных точек на фигуру | 8 | фильтр эталона и отбора кадров |
-| минимум площади фигуры | 4000 px² | решение до разметки, обоснование ниже |
-| сопоставление людей, IoU рамок | 0.3 | по умолчанию в скрипте |
-| допуск PCK | 1σ COCO для сустава | вклад точки в OKS не ниже 0.607 |
+| minimum annotated points per figure | 8 | the ground-truth filter and the frame selection |
+| minimum figure area | 4000 px² | decided before annotating, rationale below |
+| person matching, box IoU | 0.3 | the script default |
+| PCK tolerance | 1 COCO sigma for the joint | contribution to OKS no lower than 0.607 |
 
-Порог площади выбран не «чтобы было легче». На человеке мельче 2000 px²
-безупречная работа рукой — дрожь в 2 пикселя — даёт потолок OKS 0.84,
-а ниже 1000 px² — 0.68. Ниже порога метрика измеряла бы разрешение снимка,
-а не аккуратность разметчика. Сам эталон ниже 1000 px² не разметил ни одного
-человека из одиннадцати, попавших в эти кадры.
+The area threshold was not chosen to make the work easier. On a person
+smaller than 2000 px², flawless hand work -- a two-pixel tremor -- caps OKS at
+0.84, and below 1000 px² at 0.68. Below the threshold the metric would be
+measuring the resolution of the photograph rather than the accuracy of the
+annotator. The ground truth itself annotated none of the eleven people below
+1000 px² that appear in these frames.
 
-## 2. Методика
+## 2. Method
 
-Считаются три разные вещи, и ни одна не заменяет другие.
+Three different things are measured, and none of them replaces the others.
 
-**OKS** — точность координат. Расстояние до эталонной точки нормируется на
-площадь фигуры и на посуставную сигму, поэтому одинаковый промах стоит разного
-на большом и на маленьком человеке и разного на носу и на бедре. Сигмы — замер
-разброса при повторной разметке, а не настройка. Считается в двух режимах:
-по общим точкам (усреднение по тому, что разметили обе стороны) и COCO-style
-(не поставленная мной точка даёт нулевой вклад).
+**OKS** -- coordinate accuracy. The distance to the ground-truth point is
+normalised by the area of the figure and by a per-joint sigma, so the same
+error costs differently on a large and a small person, and differently on the
+nose and on the hip. The sigmas are a measurement of the spread with which
+humans re-annotate a joint, not a tuning knob. Computed in two modes: over
+common points (averaged over what both sides annotated) and COCO-style (a
+point I did not place contributes zero).
 
-**PCK по суставам** — доля точек, попавших в допуск, отдельно по каждому из 17
-суставов. Допуск задан в сигмах, а не в пикселях, поэтому PCK и OKS сравнимы.
+**Per-joint PCK** -- the share of points inside the tolerance, separately for
+each of the 17 joints. The tolerance is expressed in sigmas rather than
+pixels, which keeps PCK and OKS comparable.
 
-**Согласие по флагу видимости и каппа Коэна** — ось, которой нет ни у боксов,
-ни у контуров, ни у треков. У точки, кроме координат, есть решение: размечена
-и видна (`v=2`), размечена и не видна (`v=1`), не размечена вовсе (`v=0`).
-OKS к этому решению равнодушна.
+**Visibility-flag agreement and Cohen's kappa** -- an axis that boxes,
+polygons and tracks do not have. Beyond its coordinates, a point carries a
+decision: annotated and visible (`v=2`), annotated but not visible (`v=1`),
+not annotated at all (`v=0`). OKS is indifferent to that decision.
 
-**Сопоставление людей идёт по рамке из размеченных точек, а не по OKS** —
-это важнее, чем кажется. COCOeval сопоставляет по OKS, но там вторая сторона
-модель. Здесь так делать нельзя: человек с перепутанными сторонами даёт OKS
-около 0.1–0.4, не проходит порог сопоставления и выпадает из счёта вместе со
-своей ошибкой, а метрика от этого растёт. Ось сопоставления вынесена отдельно
-намеренно. Оба варианта посчитаны, разница названа в разделе 5.
+**People are matched by the box built from the annotated points, not by OKS**
+-- and that matters more than it looks. COCOeval matches by OKS, but there the
+other side is a model. Here it would be wrong: a person with swapped sides
+scores an OKS of about 0.1-0.4, fails the matching threshold and drops out of
+the count together with their error, and the metric goes up as a result. The
+matching axis is deliberately kept separate. Both variants were computed and
+the difference is stated in section 5.
 
-Реализация — стандартная библиотека Python, венгерский алгоритм написан руками
-и перенесён с этапа A3. Проверена до расчётов на четырёх случаях с известным
-ответом (`common/oks.py --selftest`), в том числе на контрольном: сдвиг каждой
-точки ровно на одну сигму обязан давать exp(-1/2) = 0.6065 независимо от
-сустава и размера человека.
+The implementation uses the Python standard library; the Hungarian algorithm
+is hand-written and carried over from the tracking stage. It was verified
+before any computation on four cases with known answers
+(`common/oks.py --selftest`), including the control one: offsetting every
+point by exactly one sigma must yield exp(-1/2) = 0.6065 regardless of joint
+and person size.
 
-## 3. Результат
+## 3. Result
 
 | | |
 |---|---|
-| кадров | 14 |
-| людей своих / эталонных | 47 / 47 |
-| сопоставлено пар | 43 |
-| **OKS по общим точкам** | **0.895** (медиана 0.916, минимум 0.404) |
+| frames | 14 |
+| people, mine / ground truth | 47 / 47 |
+| matched pairs | 43 |
+| **OKS over common points** | **0.895** (median 0.916, minimum 0.404) |
 | OKS COCO-style | 0.868 |
-| PCK@1σ | 0.954 |
-| **согласие по флагу видимости** | **0.822** |
-| каппа Коэна по флагу | 0.345 (617 слотов) |
+| PCK@1 sigma | 0.954 |
+| **visibility-flag agreement** | **0.822** |
+| Cohen's kappa on the flag | 0.345 (617 slots) |
 
-Без пары: эталонных 4, своих 4 — из них 2 человека отброшены фильтром эталона
-(размечены менее чем восемью точками либо мельче порога) и 2 не соответствуют
-эталону ни в чём.
+Unmatched: 4 in the ground truth, 4 of mine -- of the latter, 2 correspond to
+a person dropped by the ground-truth filter (annotated with fewer than eight
+points, or below the area threshold) and 2 correspond to nothing in the
+ground truth at all.
 
-Матрица флагов, строки — эталон, столбцы — моё:
+The flag matrix, rows are the ground truth, columns are mine:
 
-| эталон \ моё | v=0 не размечена | v=1 не видна | v=2 видна |
+| GT \ mine | v=0 not annotated | v=1 not visible | v=2 visible |
 |---|---|---|---|
-| v=0 не размечена | 0 | 23 | 13 |
-| v=1 не видна | 8 | 25 | 19 |
-| v=2 видна | 8 | 39 | 482 |
+| v=0 not annotated | 0 | 23 | 13 |
+| v=1 not visible | 8 | 25 | 19 |
+| v=2 visible | 8 | 39 | 482 |
 
-Худшие суставы по PCK и средний промах:
+Worst joints by PCK, with the mean offset:
 
-| сустав | PCK | точек | средний промах, px |
+| joint | PCK | points | mean offset, px |
 |---|---|---|---|
 | right_hip | 0.90 | 40 | 13.6 |
 | left_wrist | 0.91 | 33 | 11.1 |
@@ -93,126 +102,138 @@ OKS к этому решению равнодушна.
 | left_ankle | 0.94 | 33 | 9.9 |
 | right_wrist | 0.94 | 35 | 12.3 |
 
-Лучше всего сходится лицо: глаза 1.8 px, уши 2.3–3.1 px, нос 2.7 px при
-PCK 0.96–1.00. Это прямое следствие решения, принятого до разметки: точки
-лица ставились с увеличением, потому что допуск там 6–8 px против 19–26 px
-на бедре и лодыжке.
+The face agrees best: eyes 1.8 px, ears 2.3-3.1 px, nose 2.7 px, at PCK
+0.96-1.00. That is a direct consequence of a decision taken before annotating:
+face points were placed zoomed in, because the tolerance there is 6-8 px
+against 19-26 px on the hip and the ankle.
 
-По размеру фигуры OKS ровный: мелкие 0.895 (11 пар), средние 0.902 (22),
-крупные 0.879 (10). Порог площади свою работу сделал — зависимости метрики
-от разрешения не осталось.
+OKS is flat across figure size: small 0.895 (11 pairs), medium 0.902 (22),
+large 0.879 (10). The area threshold did its job -- no dependence of the
+metric on resolution is left.
 
-## 4. Систематические расхождения
+## 4. Systematic disagreements
 
-**Перепутанные стороны — одна фигура из 43.** `000000551820.jpg`, эталон
-#1247453: OKS 0.404, а при перестановке лево/право обратно — 0.880. Проверено
-перестановкой на всех 43 парах: улучшает ровно у одной, у остальных 42
-ухудшает, то есть систематической путаницы нет. Цена одной фигуры — 0.011
-общего OKS (0.895 вместо 0.906). Инструкцией не чинится: правило про стороны
-человека, а не картинки, в инструкции было с самого начала и оно верное —
-не выполнялась проверка по цвету скелета перед сдачей фигуры. В версии 2
-инструкции проверка сделана обязательным шагом. Разметка намеренно не
-исправлена: править её после сравнения с эталоном — подгонка под эталон.
+**Swapped sides -- one figure out of 43.** `000000551820.jpg`, ground truth
+#1247453: OKS 0.404, and 0.880 when left and right are swapped back. Tested by
+swapping across all 43 pairs: it improves exactly one and makes the other 42
+worse, so there is no systematic confusion. That one figure costs 0.011 of the
+overall OKS (0.895 instead of 0.906). Not fixable by the guidelines: the rule
+that sides belong to the person and not to the picture was in the guidelines
+from the start and it is correct -- what was skipped was the colour check
+before handing the figure in. In version 2 that check became a mandatory step.
+The annotation was deliberately left uncorrected: fixing it after comparing
+against the ground truth would be fitting to the ground truth.
 
-**Уши — 14 точек, 13% расхождений по флагу.** Эталон ухо, скрытое головой или
-волосами, не размечает вовсе; я ставил его с флагом «не видно», потому что
-положение уха по линии головы оценивается точно. Правило эталона видно на всём
-val2017: ухо не размечено у 41% людей при 3% у плеча. Чинится инструкцией,
-и правило принято в редакции COCO: ухо, которого не видно, не размечается.
+**Ears -- 14 points, 13% of the flag disagreements.** The ground truth does
+not annotate an ear hidden by the head or the hair at all; I placed it along
+the line of the head with a "not visible" flag, because an ear can be located
+precisely that way. The ground-truth rule is visible across all of val2017:
+the ear is unannotated for 41% of people, against 3% for the shoulder. Fixable
+by the guidelines, and the rule was adopted in the COCO reading: an ear that
+cannot be seen is not annotated.
 
-**Граница «видно / не видно» — 58 точек, 53% расхождений по флагу.**
-39 точек помечены мной `occluded` там, где эталон считает их видимыми,
-и 19 наоборот, причём 8 из этих 19 — лодыжки. Инструкцией это не чинится:
-формулировки, которая провела бы границу одинаково у двух разметчиков,
-у меня нет. Вместо обещания починки в отчёт вынесены каппа и матрица.
-Косвенная проверка того, что граница реальна, а не выдумана: на точках,
-которые эталон пометил невидимыми, мой промах составил 11.0 px против 7.8 px
-на видимых, PCK 0.864 против 0.962. Догадка о скрытом суставе объективно
-дороже, у обеих сторон.
+**The visible / not-visible boundary -- 58 points, 53% of the flag
+disagreements.** 39 points were marked `occluded` by me where the ground truth
+considers them visible, and 19 the other way round, 8 of those 19 being
+ankles. Not fixable by the guidelines: I have no wording that would draw the
+same boundary for two different annotators. Instead of promising a fix, the
+report carries the kappa and the matrix. An indirect check that the boundary
+is real rather than invented: on points the ground truth marked as not
+visible, my offset was 11.0 px against 7.8 px on visible ones, PCK 0.864
+against 0.962. Guessing at a hidden joint is objectively more expensive -- for
+both sides.
 
-**Расхождения, которого не случилось: край кадра.** Из 36 точек, поставленных
-мной там, где эталон не ставит ничего, у границы кадра лежит одна. Правило
-COCO — точку за кадром не досочинять, к границе не прижимать, не ставить
-вовсе — было измерено и записано в инструкцию **до** разметки. Сравнение с
-этапом A3 прямое: там эталон MOT17 ведёт бокс за границу изображения, моя
-инструкция обрезала по границе, и одно это правило дало 72 пропуска из 77.
-Тот же вопрос, обратный ответ, разница — в том, объявлена конвенция заранее
-или подразумевалась.
+**The disagreement that did not happen: the image border.** Of the 36 points I
+placed where the ground truth places nothing, exactly one sits near the border
+of the frame. The COCO rule -- do not invent a point beyond the frame, do not
+pin it to the border, do not place it at all -- was measured and written into
+the guidelines **before** annotating. The comparison with the tracking stage
+is direct: there the MOT17 ground truth carries a box past the edge of the
+image, my guidelines clipped at the edge, and that single rule produced 72 of
+77 misses. The same question, the opposite answer; the difference is whether
+the convention was stated up front or silently assumed.
 
-## 5. Что метрика не видит
+## 5. What the metric does not see
 
-Главный раздел: цена решений, которые обычно принимают на глаз.
+The main section: the measured price of decisions that are usually made by
+feel.
 
-**OKS слепа к флагу видимости.** Разметка, где каждая точка стоит там же, где
-в эталоне, но помечена «видна» без разбора, даёт OKS ровно 1.000 при согласии
-по флагу 0.900. Это не оценка, а посчитанное число на этих же 47 фигурах.
-В моём прогоне то же самое видно в мягкой форме: OKS 0.895 и PCK 0.954
-выглядят прилично, а каждый шестой флаг разошёлся.
+**OKS is blind to the visibility flag.** An annotation in which every point
+sits exactly where the ground truth has it, but is marked "visible" without
+discrimination, scores OKS 1.000 at a flag agreement of 0.900. That is a
+computed number on these same 47 figures, not an estimate. My own run shows
+the same thing in a milder form: OKS 0.895 and PCK 0.954 look respectable
+while every sixth flag disagrees.
 
-**Доля совпадений без каппы вводит в заблуждение.** У той же подставной
-разметки, всегда ставящей флаг «видна», каппа равна ровно 0.000: разметчик,
-не меняющий ответ, не несёт о видимости никакой информации. Мои 0.822 при
-каппе 0.345 — это «согласие заметно выше случайного, но далеко не полное»,
-и без второго числа первое читалось бы как хороший результат. Приём тот же,
-что на боксах в P2, где каппа по классам составила 0.914.
+**Raw agreement without kappa is misleading.** For that same stand-in
+annotation which always says "visible", kappa is exactly 0.000: an annotator
+who never changes their answer carries no information about visibility. My
+0.822 at kappa 0.345 means "noticeably better than chance, but far from
+complete", and without the second number the first would read as a good
+result. The same trick as with classes in the detection stage, where kappa
+came out at 0.914.
 
-**Сопоставление по метрике прячет худшие случаи.** Сопоставление по OKS вместо
-рамки дало на этих данных то же число пар (43), но другое разбиение и OKS
-0.899 против 0.895. Разница мала ровно потому, что перепутанная сторонами
-фигура здесь одна; на разметке, где таких фигур десяток, именно они выпадают
-из счёта первыми, и метрика растёт от их потери.
+**Matching by the metric hides the worst cases.** Matching by OKS instead of
+by the box gave the same number of pairs on this data (43) but a different
+partition, and OKS 0.899 against 0.895. The difference is small precisely
+because there is only one swapped-sides figure here; on an annotation with a
+dozen of them, those are the first to drop out of the count, and the metric
+rises because they are gone.
 
-**Порог приёмки в пикселях назначать нельзя.** На этом наборе систематический
-сдвиг всех точек на 3 px даёт OKS 0.966, на 8 px — 0.817, на 12 px — 0.684.
-Тот же сдвиг 8 px стоит 0.705 на мелких людях и 0.922 на крупных. Порог
-приёмки, названный в пикселях, означает разные требования к разметчику
-в зависимости от того, какие кадры ему достались.
+**An acceptance threshold cannot be set in pixels.** On this data a systematic
+offset of every point by 3 px gives OKS 0.966, by 8 px 0.817, by 12 px 0.684.
+The same 8 px offset costs 0.705 on small people and 0.922 on large ones. An
+acceptance threshold stated in pixels means different demands on the annotator
+depending on which frames they happened to get.
 
-**Конвенция — свойство датасета, а не правильности.** Три этапа, один и тот
-же вопрос про край кадра, три разных ответа: MOT17 ведёт бокс за границу
-(A3), COCO Keypoints точку за границей не ставит вовсе — ноль из 40 255,
-Total-Text (A5) передаёт регистр текста, и другое правило стоит 0.702 CER.
-Разметчик, принёсший привычку из прошлого проекта, наберёт расхождений на
-ровном месте. Поэтому конвенция объявляется при сдаче партии, а не
-подразумевается.
+**A convention is a property of the dataset, not of correctness.** Three
+stages, one and the same question about the image border, three different
+answers: MOT17 carries the box past the edge; COCO Keypoints does not place a
+point beyond the edge at all -- zero out of 40,255; Total-Text (the OCR stage)
+preserves the letter case of the sign, and a different rule there costs 0.702
+CER. An annotator who brings a habit from a previous project accumulates
+disagreements for no reason at all. Which is why the convention is stated when
+a batch is handed over rather than assumed.
 
-## 6. Что изменено в инструкции
+## 6. What changed in the guidelines
 
-`annotation/GUIDELINES.md`, версия 1 записана и закоммичена до первой
-размеченной фигуры, версия 2 — после разбора. Версия 1 не тронута: история
-правил сама по себе результат.
+`annotation/GUIDELINES.md`: version 1 was written and committed before the
+first annotated figure, version 2 after the analysis. Version 1 was left
+untouched -- the history of the rules is part of the artefact.
 
-| дата | правка | объём |
+| date | revision | volume |
 |---|---|---|
-| 2026-08-23 | ухо, скрытое головой или волосами, не размечается (`v=0`) | 14 точек, 13% расхождений по флагу |
-| 2026-08-23 | проверка сторон по цвету скелета — обязательный шаг на каждой фигуре | 1 фигура из 43, 0.011 общего OKS |
-| 2026-08-23 | решено не править: граница «видно / не видно» | 58 точек, 53% расхождений; вынесено в каппу и матрицу |
+| 2026-08-23 | an ear hidden by the head or the hair is not annotated (`v=0`) | 14 points, 13% of the flag disagreements |
+| 2026-08-23 | the side check by skeleton colour is a mandatory step on every figure | 1 figure of 43, 0.011 of the overall OKS |
+| 2026-08-23 | decided not to fix: the visible / not-visible boundary | 58 points, 53% of the disagreements; carried into the kappa and the matrix instead |
 
-## Ограничения
+## Limitations
 
-**47 фигур — это около 620 точек, и по каждому суставу приходится от 20
-наблюдений (уши) до 42 (плечи).** Общий OKS на таком объёме устойчив,
-PCK по отдельному суставу — нет: разница между 0.90 и 0.95 на тридцати точках
-ничего не значит. PCK здесь читается как порядок величины и как указание,
-куда смотреть, а не как измерение с точностью до второго знака.
+**47 figures is about 620 points, which leaves between 20 observations per
+joint (ears) and 42 (shoulders).** The overall OKS is stable at that volume;
+per-joint PCK is not: the difference between 0.90 and 0.95 over thirty points
+means nothing. PCK is read here as an order of magnitude and as a pointer to
+where to look, not as a measurement accurate to the second decimal.
 
-**Эталон COCO по точкам местами небрежен.** Суставы под свободной одеждой
-расставлены в нём на глаз, как и у меня; расхождение на них не означает,
-что ошибся я. По той же причине не считается «правильной» ни одна из сторон
-в спорах про флаг видимости.
+**The COCO ground truth is careless in places.** Joints under loose clothing
+are placed by eye there, exactly as they are by me; a disagreement on those
+does not mean that I was the one who got it wrong. For the same reason neither
+side is treated as "correct" in the visibility-flag disputes.
 
-**Сравнение — с одним эталоном, а не между двумя разметчиками.** Это верхняя
-оценка согласия: часть расхождений объясняется конвенцией датасета, а не
-качеством руки, и разделить их можно только там, где конвенция измерена
-(край кадра, уши).
+**This is a comparison against one ground truth, not between two annotators.**
+It is therefore an upper bound on agreement: part of the disagreement is
+explained by the convention of the dataset rather than by the quality of the
+hand, and the two can only be separated where the convention has been measured
+(the image border, the ears).
 
-## Соседние этапы
+## Neighbouring stages
 
-Тот же метод на других типах разметки, каждый со своей метрикой согласия:
+The same method on other annotation types, each with its own agreement metric:
 
-- **Боксы** — [detection-annotation-quality](https://github.com/daviddolya/detection-annotation-quality): 100 кадров, каппа по классам 0.914, средний IoU 0.867.
-- **Полигоны** — [polygon-annotation-agreement](https://github.com/daviddolya/polygon-annotation-agreement): 25 кадров, mask IoU 0.840, Boundary IoU 0.676.
-- **Треки** — [tracking-annotation-agreement](https://github.com/daviddolya/tracking-annotation-agreement): MOT17-09, IDF1 0.896, 2 подмены идентификаторов, разбор амодальности за краем кадра.
+- **Boxes** -- [detection-annotation-quality](https://github.com/daviddolya/detection-annotation-quality): 100 frames, kappa on classes 0.914, mean IoU 0.867.
+- **Polygons** -- [polygon-annotation-agreement](https://github.com/daviddolya/polygon-annotation-agreement): 25 frames, mask IoU 0.840, Boundary IoU 0.676.
+- **Tracks** -- [tracking-annotation-agreement](https://github.com/daviddolya/tracking-annotation-agreement): MOT17-09, IDF1 0.896, 2 identity switches, and an analysis of amodality beyond the image border.
 
-Раздел 5 без них читается хуже: у боксов, контуров и треков нет оси, на
-которой здесь разошлась разметка, — там метрика видит всё, что размечено.
+Section 5 reads worse without them: boxes, polygons and tracks have no axis
+like the one the annotation diverged on here -- there the metric sees
+everything that was annotated.

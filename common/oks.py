@@ -1,47 +1,50 @@
 #!/usr/bin/env python3
-"""OKS, PCK и согласие по флагу видимости (P4d).
+"""OKS, PCK and visibility-flag agreement.
 
-ЗАЧЕМ ОТДЕЛЬНАЯ МЕТРИКА. У бокса и полигона есть площадь, поэтому есть IoU.
-У точки площади нет: пересечение двух точек пусто всегда, IoU тождественно
-равен нулю. Мерить приходится расстоянием — но голое расстояние в пикселях
-непригодно по двум причинам сразу. Пять пикселей на человеке во весь кадр
-и пять пикселей на человеке ростом в сто пикселей — разные ошибки. И пять
-пикселей на кончике носа и пять пикселей на бедре — тоже разные: где именно
-находится бедро под одеждой, два аккуратных разметчика согласны куда хуже,
-чем где находится нос.
+WHY KEYPOINTS NEED THEIR OWN METRIC. A box and a polygon have area, so they
+have IoU. A point has none: the intersection of two points is always empty
+and IoU is identically zero. That leaves distance -- but raw distance in
+pixels is unusable for two reasons at once. Five pixels on a person filling
+the frame and five pixels on a person a hundred pixels tall are different
+errors. And five pixels on the tip of the nose and five pixels on the hip
+are different too: where exactly the hip sits under clothing is something
+two careful annotators agree on far worse than where the nose is.
 
-OKS чинит обе проблемы одной формулой:
+OKS fixes both problems with one formula:
 
-    OKS = сумма по размеченным точкам exp( -d_i^2 / (2 * s^2 * k_i^2) )
-          делить на число размеченных точек
+    OKS = sum over annotated points of exp( -d_i^2 / (2 * s^2 * k_i^2) )
+          divided by the number of annotated points
 
-    d_i  расстояние между точкой эталона и моей точкой, в пикселях
-    s^2  площадь объекта в эталоне (area). Нормировка на масштаб
-    k_i  = 2 * sigma_i, посуставная константа
+    d_i  distance between the ground-truth point and mine, in pixels
+    s^2  object area in the ground truth. This normalises out scale
+    k_i  = 2 * sigma_i, a per-joint constant
 
-СИГМЫ — ЭТО ЗАМЕР, А НЕ НАСТРОЙКА. Авторы COCO дали часть кадров на повторную
-разметку и посчитали, с каким разбросом люди ставят каждый сустав. Плечо
-вышло 0.079, бедро 0.107, нос 0.026. То есть на одном и том же человеке
-промах по носу в четыре раза «дороже» такого же промаха по бедру — просто
-потому, что по носу разметчики обычно согласны, а по бедру нет.
+SIGMAS ARE A MEASUREMENT, NOT A TUNING KNOB. The COCO authors had part of
+the images re-annotated and measured the spread with which humans place
+each joint. Shoulder came out at 0.079, hip at 0.107, nose at 0.026. On the
+same person, an error on the nose is therefore roughly four times as
+"expensive" as the same error on the hip -- simply because annotators tend
+to agree about the nose and not about the hip.
 
-ЧТО ОТСЮДА СЛЕДУЕТ ПРАКТИЧЕСКИ. Сдвиг ровно на d = s * k_i даёт
-exp(-1/2) = 0.6065 — этим удобно проверять реализацию без компьютера.
-И OKS асимметрична: масштаб s берётся из эталона, поэтому «OKS моей
-разметки относительно эталона» и наоборот — разные числа. Здесь всегда
-эталон в первом аргументе.
+THE PRACTICAL CONSEQUENCE. An offset of exactly d = s * k_i yields
+exp(-1/2) = 0.6065, which makes the implementation checkable on paper.
+And OKS is asymmetric: the scale s comes from the ground truth, so "OKS of
+my annotation against the ground truth" and the reverse are different
+numbers. Here the ground truth is always the first argument.
 
-ЧЕГО OKS НЕ ВИДИТ. Она считается по точкам и молчит про флаг видимости:
-разметка с идеальными координатами, где каждая точка помечена «видна»,
-даёт ровно 1.000, хотя часть флагов расходится с эталоном. Поэтому
-согласие по флагу считается отдельной метрикой, а не приписывается к OKS.
+WHAT OKS DOES NOT SEE. It is computed from coordinates and says nothing
+about the visibility flag: an annotation with perfect coordinates in which
+every point is marked "visible" scores exactly 1.000, even though some of
+the flags disagree with the ground truth. Flag agreement is therefore a
+separate metric rather than something folded into OKS.
 
-Глубже: cocodataset.org/#keypoints-eval (определение и таблица сигм);
-Ronchi & Perona, "Benchmarking and Error Diagnosis in Multi-Instance Pose
-Estimation", arXiv:1707.05388 (разбор того, из чего складывается ошибка).
+Further reading: cocodataset.org/#keypoints-eval (definition and the sigma
+table); Ronchi & Perona, "Benchmarking and Error Diagnosis in Multi-Instance
+Pose Estimation", arXiv:1707.05388 (a breakdown of what pose error is made of).
 
-Венгерский алгоритм перенесён из tracking-annotation-agreement/common/matching.py
-(этап A3, P4c) — там же его подробное описание. Зависимостей нет, scipy не нужен.
+The Hungarian algorithm is carried over unchanged from
+tracking-annotation-agreement/common/matching.py, where it is documented in
+detail. No dependencies, scipy not required.
 """
 
 import argparse
@@ -55,16 +58,16 @@ INF = float("inf")
 
 
 def hungarian(cost: list[list[float]]) -> list[tuple[int, int]]:
-    """Минимальное по стоимости паросочетание в квадратной матрице.
+    """Minimum-cost assignment in a square matrix.
 
-    Венгерский алгоритм в форме Кюна — Манкреса, O(n^3). Перенесён из
-    common/matching.py проекта A3 без изменений. Важно не то, как он устроен
-    внутри, а то, что он не жадный: жадный выбор «сначала лучшая пара, потом
-    следующая лучшая» может забрать пару, выгодную локально, и оставить
-    другому человеку только плохие варианты.
+    The Hungarian algorithm in Kuhn-Munkres form, O(n^3). Carried over from
+    common/matching.py of the tracking project unchanged. What matters is
+    not how it works inside but that it is not greedy: picking "best pair
+    first, then the next best" can take a locally attractive pair and leave
+    another person with nothing but bad options.
     """
     n, m = len(cost), len(cost[0])
-    assert n == m, "матрица должна быть квадратной — дополняй фиктивными строками"
+    assert n == m, "the matrix must be square -- pad it with dummy rows"
     u = [0.0] * (n + 1)
     v = [0.0] * (m + 1)
     p = [0] * (m + 1)
@@ -103,20 +106,20 @@ def hungarian(cost: list[list[float]]) -> list[tuple[int, int]]:
     return [(p[j] - 1, j - 1) for j in range(1, m + 1) if p[j] > 0]
 
 
-# --- стадия 1: метрика на одной паре людей ---------------------------------
+# --- stage 1: the metric on a single pair of people ------------------------
 
 def oks(gt: Person, mine: Person, mode: str = "common") -> float | None:
-    """OKS пары «эталонный человек — мой человек». Масштаб берётся из эталона.
+    """OKS of a (ground-truth person, my person) pair. Scale from the GT.
 
-    mode='common' — усреднение по точкам, размеченным ОБЕИМИ сторонами.
-        Отвечает на вопрос «насколько точно я ставлю точки там, где ставлю».
-        Расхождение в самом факте разметки уходит в согласие по флагу.
-    mode='coco'   — усреднение по всем точкам, размеченным в эталоне;
-        не поставленная мной точка даёт нулевой вклад. Так считает COCOeval,
-        где вторая сторона — модель, и «не нашла» это ошибка.
+    mode='common' -- averaged over points annotated by BOTH sides. Answers
+        "how precisely do I place the points I do place". Disagreement about
+        whether to place a point at all goes into flag agreement instead.
+    mode='coco'   -- averaged over all points annotated in the ground truth;
+        a point I did not place contributes zero. This is how COCOeval works,
+        where the other side is a model and "did not find it" is an error.
 
-    Два числа рядом полезнее одного: если они сильно разошлись, значит
-    расхождение не в координатах, а в том, какие точки вообще размечать.
+    The two numbers side by side are worth more than either alone: if they
+    diverge, the problem is not the coordinates but which points to annotate.
     """
     num, den = 0.0, 0
     for i, ((gx, gy, gv), (mx, my, mv)) in enumerate(zip(gt.points, mine.points)):
@@ -126,15 +129,15 @@ def oks(gt: Person, mine: Person, mode: str = "common") -> float | None:
             continue
         den += 1
         if mv == ABSENT:
-            continue                       # coco-режим: вклад нулевой
+            continue                       # coco mode: zero contribution
         d2 = (gx - mx) ** 2 + (gy - my) ** 2
         num += math.exp(-d2 / (2 * gt.area * K[i] ** 2))
     return num / den if den else None
 
 
 def point_errors(gt: Person, mine: Person) -> list[tuple[int, float, float]]:
-    """(индекс сустава, расстояние в пикселях, порог 1 сигмы в пикселях)
-    по точкам, размеченным обеими сторонами. Сырьё для PCK и для разбора."""
+    """(joint index, distance in pixels, one-sigma tolerance in pixels)
+    over points annotated by both sides. Raw material for PCK and analysis."""
     out = []
     s = math.sqrt(gt.area)
     for i, ((gx, gy, gv), (mx, my, mv)) in enumerate(zip(gt.points, mine.points)):
@@ -146,14 +149,15 @@ def point_errors(gt: Person, mine: Person) -> list[tuple[int, float, float]]:
 
 def pck(pairs: list[tuple[Person, Person]], mult: float = 1.0
         ) -> tuple[dict[int, tuple[int, int]], float]:
-    """PCK по суставам: доля точек, попавших в допуск.
+    """Per-joint PCK: the share of points that landed inside the tolerance.
 
-    Допуск здесь — не фиксированное число пикселей, а mult * s * k_i, то есть
-    тот же масштаб и та же посуставная сигма, что в OKS. При mult=1.0 «попал»
-    означает вклад в OKS не ниже exp(-1/2) = 0.6065, и одно число сравнимо
-    с другим. Порог называется в отчёте, а не подбирается под результат.
+    The tolerance is not a fixed number of pixels but mult * s * k_i -- the
+    same scale and the same per-joint sigma as in OKS. At mult=1.0 a "hit"
+    means a contribution to OKS of at least exp(-1/2) = 0.6065, which makes
+    the two numbers comparable. The threshold is stated in the report rather
+    than tuned to the result.
 
-    Возвращает {индекс сустава: (попаданий, всего)} и общую долю.
+    Returns {joint index: (hits, total)} and the overall share.
     """
     per: dict[int, list[int]] = {i: [0, 0] for i in range(17)}
     for g, m in pairs:
@@ -166,17 +170,18 @@ def pck(pairs: list[tuple[Person, Person]], mult: float = 1.0
     return {i: (v[0], v[1]) for i, v in per.items()}, (hit / tot if tot else 0.0)
 
 
-# --- стадия 2: согласие по флагу, отдельно от координат ---------------------
+# --- stage 2: flag agreement, separate from the coordinates ----------------
 
 def flag_confusion(pairs: list[tuple[Person, Person]]) -> dict:
-    """Матрица 3x3 по флагу видимости плюс доля совпадений и каппа Коэна.
+    """3x3 visibility-flag matrix plus raw agreement and Cohen's kappa.
 
-    Слот учитывается, если хотя бы одна сторона что-то про него сказала:
-    точка, которую обе стороны не разметили, — это согласие ни о чём,
-    и включать её значит завышать метрику (в эталоне таких четверть).
+    A slot counts if at least one side said something about it: a point
+    neither side annotated is agreement about nothing, and including it
+    inflates the metric (a quarter of all slots in the GT are of that kind).
 
-    Каппа считается как в P2 по классам: она вычитает то согласие, которое
-    получилось бы при случайном проставлении флагов с теми же частотами.
+    Kappa is computed the same way as for classes in the detection project:
+    it subtracts the agreement that random flags with the same marginal
+    frequencies would have produced.
     """
     m = [[0] * 3 for _ in range(3)]
     for g, my in pairs:
@@ -195,23 +200,25 @@ def flag_confusion(pairs: list[tuple[Person, Person]]) -> dict:
     return {"matrix": m, "total": total, "agreement": observed, "kappa": kappa}
 
 
-# --- стадия 3: кого с кем сравнивать ---------------------------------------
+# --- stage 3: deciding who is compared with whom ---------------------------
 
 def match_people(gt: list[Person], mine: list[Person], mode: str = "bbox",
                  threshold: float = 0.3
                  ) -> tuple[list[tuple[Person, Person]], list[Person], list[Person]]:
-    """Сопоставление людей внутри каждого кадра. Венгерский алгоритм.
+    """Matches people within each frame. Hungarian algorithm.
 
-    mode='bbox' (по умолчанию) — стоимость по IoU рамки, построенной
-        ПО РАЗМЕЧЕННЫМ ТОЧКАМ, а не по полю bbox из файла: у эталона и
-        у экспорта CVAT это поле заполняется по-разному, а точки одни и те же.
-        Ось независима от самой метрики — сопоставили по одному, меряем другим.
-    mode='oks'  — стоимость по OKS, как в COCOeval. Считать метрику тем же,
-        чем сопоставляли, — замкнутый круг: человек с перепутанными сторонами
-        получает низкий OKS и рискует остаться без пары, то есть самая
-        интересная ошибка исчезнет из отчёта вместо того, чтобы попасть в него.
+    mode='bbox' (default) -- cost from the IoU of the box built FROM THE
+        ANNOTATED POINTS, not from the bbox field in the file: the ground
+        truth and a CVAT export fill that field differently, while the points
+        are the same. The axis stays independent of the metric -- matched by
+        one thing, measured by another.
+    mode='oks'  -- cost from OKS, the way COCOeval does it. Measuring with
+        the same quantity you matched on is circular: a person with swapped
+        sides scores low OKS and risks being left unmatched, so the most
+        interesting error disappears from the report instead of entering it.
 
-    Возвращает пары, несопоставленных из эталона и несопоставленных своих.
+    Returns the pairs, the unmatched ground-truth people and the unmatched
+    people of mine.
     """
     pairs: list[tuple[Person, Person]] = []
     lost_gt: list[Person] = []
@@ -245,7 +252,7 @@ def match_people(gt: list[Person], mine: list[Person], mode: str = "bbox",
     return pairs, lost_gt, lost_mine
 
 
-# --- стадия 4: всё вместе ---------------------------------------------------
+# --- stage 4: everything together ------------------------------------------
 
 def evaluate(gt: list[Person], mine: list[Person], mode: str = "bbox",
              threshold: float = 0.3, pck_mult: float = 1.0) -> dict:
@@ -274,11 +281,11 @@ def evaluate(gt: list[Person], mine: list[Person], mode: str = "bbox",
     }
 
 
-# --- контрольные случаи -----------------------------------------------------
+# --- self-test cases --------------------------------------------------------
 
-# Фигурка человека с известными координатами: площадь ровно 10000, значит
-# s = 100 и порог одной сигмы по плечу — 15.8 px. Ничего не качается и
-# не читается с диска: тест обязан идти на пустой машине.
+# A stick figure with known coordinates: area is exactly 10000, so s = 100
+# and the one-sigma tolerance on the shoulder is 15.8 px. Nothing is
+# downloaded or read from disk: the test must run on a bare machine.
 TEMPLATE = [
     (100, 30), (108, 24), (92, 24), (118, 28), (82, 28),
     (135, 70), (65, 70), (150, 120), (50, 120), (160, 170), (40, 170),
@@ -301,27 +308,27 @@ def _person(flags: list[int], dx: float = 0.0, sigma_shift: float = 0.0,
 
 
 def _selftest() -> int:
-    """Четыре случая с ответом, известным заранее."""
+    """Four cases whose answers are known in advance."""
     flags = [VISIBLE] * 17
-    flags[3] = flags[4] = HIDDEN     # уши размечены, но не видны
-    flags[9] = flags[10] = ABSENT    # запястья не размечены вовсе
+    flags[3] = flags[4] = HIDDEN     # ears annotated but not visible
+    flags[9] = flags[10] = ABSENT    # wrists not annotated at all
     ref = _person(flags)
 
     cases = [
-        ("разметка совпадает с эталоном", _person(flags)),
-        ("каждая точка сдвинута ровно на s*k_i", _person(flags, sigma_shift=1.0)),
-        ("лево и право переставлены местами", _person(flags, swap=True)),
-        ("координаты те же, флаг везде «видна»",
+        ("annotation identical to the ground truth", _person(flags)),
+        ("every point offset by exactly s*k_i", _person(flags, sigma_shift=1.0)),
+        ("left and right swapped", _person(flags, swap=True)),
+        ("same coordinates, every flag says visible",
          _person([ABSENT if f == ABSENT else VISIBLE for f in flags])),
     ]
 
-    print(f"эталон: площадь {ref.area:.0f}, s = {math.sqrt(ref.area):.0f} px, "
-          f"размечено точек {ref.labeled} из 17")
-    print(f"порог одной сигмы: нос {math.sqrt(ref.area) * K[0]:.1f} px, "
-          f"плечо {math.sqrt(ref.area) * K[5]:.1f} px, "
-          f"бедро {math.sqrt(ref.area) * K[11]:.1f} px")
+    print(f"ground truth: area {ref.area:.0f}, s = {math.sqrt(ref.area):.0f} px, "
+          f"annotated points {ref.labeled} of 17")
+    print(f"one-sigma tolerance: nose {math.sqrt(ref.area) * K[0]:.1f} px, "
+          f"shoulder {math.sqrt(ref.area) * K[5]:.1f} px, "
+          f"hip {math.sqrt(ref.area) * K[11]:.1f} px")
     print()
-    print("| случай | OKS | PCK@1σ | согласие по флагу |")
+    print("| case | OKS | PCK@1 sigma | flag agreement |")
     print("|---|---|---|---|")
     results = []
     for name, mine in cases:
@@ -335,32 +342,32 @@ def _selftest() -> int:
     print()
     ok = True
     if abs(results[0] - 1.0) > 1e-9:
-        print("ПРОВАЛ: совпадающая разметка обязана давать ровно 1.0")
+        print("FAILED: an identical annotation must score exactly 1.0")
         ok = False
     expected = math.exp(-0.5)
     if abs(results[1] - expected) > 1e-9:
-        print(f"ПРОВАЛ: сдвиг на одну сигму обязан давать exp(-1/2) = {expected:.4f}")
+        print(f"FAILED: a one-sigma offset must give exp(-1/2) = {expected:.4f}")
         ok = False
     else:
-        print(f"сдвиг на одну сигму дал exp(-1/2) = {expected:.4f} — "
-              "это проверяется на бумаге, без компьютера")
+        print(f"a one-sigma offset gave exp(-1/2) = {expected:.4f} -- "
+              "this one is checkable on paper, without a computer")
     if not results[2] < 0.5:
-        print("ПРОВАЛ: перестановка сторон обязана рушить метрику")
+        print("FAILED: swapped sides must wreck the metric")
         ok = False
     if abs(results[3] - 1.0) > 1e-9:
-        print("ПРОВАЛ: разница только во флаге не должна менять OKS")
+        print("FAILED: a flag-only difference must not change OKS")
         ok = False
     else:
-        print("разница только во флаге не изменила OKS вовсе — "
-              "именно поэтому согласие по флагу считается отдельно")
-    print("все четыре случая сошлись" if ok else "есть расхождения")
+        print("a flag-only difference did not move OKS at all -- "
+              "which is exactly why flag agreement is measured separately")
+    print("all four cases match" if ok else "there are discrepancies")
     return 0 if ok else 1
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--selftest", action="store_true",
-                    help="прогнать четыре контрольных случая")
+                    help="run the four self-test cases")
     args = ap.parse_args()
     if args.selftest:
         return _selftest()

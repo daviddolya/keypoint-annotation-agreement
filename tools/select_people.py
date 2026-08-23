@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
-"""Отбор кадров под разметку скелетов и их загрузка (P4d, шаг 0).
+"""Selects the frames to annotate and downloads them.
 
-Кадр берётся, если в нём три-четыре человека, у каждого в эталоне размечено
-достаточно точек и он не микроскопический. Правила и почему именно они:
+A frame is taken if it holds three or four people, each with enough
+annotated keypoints in the ground truth and none of them microscopic.
+The rules, and why they are what they are:
 
-  1. РОВНО 3-4 ЧЕЛОВЕКА. Кадр с одним человеком не проверяет сопоставление:
-     сопоставлять не с чем, любая моя фигура встанет в пару с единственной
-     эталонной. Кадр с восемью — это полчаса работы и толпа, где эталон сам
-     размечает через раз. Три-четыре дают и сопоставление, и перекрытия
-     людей друг другом, то есть настоящие спорные случаи.
-  2. МИНИМУМ РАЗМЕЧЕННЫХ ТОЧЕК. Человек, у которого в эталоне размечено
-     три точки, — это не скелет, и сравнивать с ним нечего.
-  3. НИЖНИЙ ПОРОГ ПЛОЩАДИ. OKS нормируется на масштаб: на мелком человеке
-     тот же промах в пикселях стоит втрое дороже. Размечать мелочь значит
-     мерить не свою аккуратность, а разрешение картинки (см. шаг 2).
-  4. ВНЕ СОТНИ P2, если передан её selection.json: одни и те же снимки,
-     размеченные третий раз, читаются как повтор, а не как широта.
+  1. EXACTLY 3-4 PEOPLE. A frame with a single person does not exercise
+     matching: there is nothing to match against, any figure of mine pairs
+     up with the only ground-truth one. A frame with eight is half an hour
+     of work and a crowd the ground truth itself annotates every other time.
+     Three or four give both matching and people occluding each other, i.e.
+     genuinely disputable cases.
+  2. MINIMUM ANNOTATED POINTS. A person with three annotated points in the
+     ground truth is not a skeleton and there is nothing to compare.
+  3. LOWER AREA THRESHOLD. OKS normalises by scale: on a small person the
+     same pixel error costs three times as much. Annotating tiny people
+     measures the resolution of the picture, not the accuracy of the hand.
+  4. OUTSIDE THE DETECTION SUBSET, when its selection.json is passed in:
+     the same photographs annotated a third time read as repetition rather
+     than as range.
 
-Сколько людей в каждом кадре и где у них точки — НЕ печатается: разметка
-идёт вслепую, иначе согласие считать не на чем. Распределение показывает
---stats, и запускать его следует после разметки, а не до.
+How many people are in each frame and where their points sit is NOT
+printed: the annotation is done blind, otherwise there is no agreement to
+measure. --stats shows the distribution, and it is meant to be run after
+the annotation, not before.
 
     python3 select_people.py --ann data/coco/person_keypoints_val2017.json \
         --out data/subset --count 14 \
@@ -47,9 +51,9 @@ def fetch(url: str, dest: Path, attempts: int = 4) -> int:
                 dest.unlink()
             if attempt == attempts:
                 raise
-            print(f"  {dest.name}: попытка {attempt} сорвалась ({e})")
+            print(f"  {dest.name}: attempt {attempt} failed ({e})")
             time.sleep(2 * attempt)
-    raise RuntimeError("недостижимо")
+    raise RuntimeError("unreachable")
 
 
 def main() -> int:
@@ -62,10 +66,10 @@ def main() -> int:
     ap.add_argument("--min-kp", type=int, default=8)
     ap.add_argument("--min-area", type=float, default=4000.0)
     ap.add_argument("--exclude", type=Path, default=None,
-                    help="selection.json другого этапа: эти кадры не брать")
+                    help="selection.json of another stage: skip those frames")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--stats", action="store_true",
-                    help="эталонное распределение — смотреть ПОСЛЕ разметки")
+                    help="ground-truth distribution -- look at it AFTER annotating")
     args = ap.parse_args()
 
     data = json.loads(args.ann.read_text(encoding="utf-8"))
@@ -87,7 +91,7 @@ def main() -> int:
             if args.min_people <= len(anns) <= args.max_people
             and images[i]["file_name"] not in skip]
     if len(pool) < args.count:
-        raise SystemExit(f"кандидатов всего {len(pool)}, просили {args.count}")
+        raise SystemExit(f"only {len(pool)} candidates, {args.count} requested")
 
     rnd = random.Random(args.seed)
     rnd.shuffle(pool)
@@ -106,7 +110,7 @@ def main() -> int:
 
     manifest = {
         "source": "COCO val2017, person_keypoints",
-        "task": "разметка скелетов, 17 точек COCO",
+        "task": "skeleton annotation, 17 COCO keypoints",
         "filters": {"people_per_frame": [args.min_people, args.max_people],
                     "min_keypoints": args.min_kp, "min_area": args.min_area,
                     "excluded_subset": str(args.exclude) if skip else None},
@@ -117,9 +121,9 @@ def main() -> int:
     (args.out / "selection_keypoints.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"кандидатов {len(pool)}, отобрано кадров {len(picked)}, {total / 1e6:.2f} МБ")
-    print(f"кадры: {frames}")
-    print(f"манифест: {args.out / 'selection_keypoints.json'}")
+    print(f"candidates {len(pool)}, frames selected {len(picked)}, {total / 1e6:.2f} MB")
+    print(f"frames: {frames}")
+    print(f"manifest: {args.out / 'selection_keypoints.json'}")
 
     if args.stats:
         people = [a for i in picked for a in per_image[i]]
@@ -130,12 +134,12 @@ def main() -> int:
         slots = sum(flags.values())
         areas = sorted(a["area"] for a in people)
         print()
-        print(f"[stats] людей {len(people)}, "
-              f"по {len(people) / len(picked):.1f} на кадр")
-        print(f"[stats] площадь: мин {areas[0]:.0f}, "
-              f"медиана {areas[len(areas) // 2]:.0f}, макс {areas[-1]:.0f}")
-        print(f"[stats] слотов точек {slots}: v=0 {flags[0]}, "
-              f"v=1 {flags[1]}, v=2 {flags[2]}; размечено {flags[1] + flags[2]}")
+        print(f"[stats] people {len(people)}, "
+              f"{len(people) / len(picked):.1f} per frame")
+        print(f"[stats] area: min {areas[0]:.0f}, "
+              f"median {areas[len(areas) // 2]:.0f}, max {areas[-1]:.0f}")
+        print(f"[stats] keypoint slots {slots}: v=0 {flags[0]}, "
+              f"v=1 {flags[1]}, v=2 {flags[2]}; annotated {flags[1] + flags[2]}")
     return 0
 
 

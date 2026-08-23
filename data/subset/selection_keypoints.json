@@ -1,6 +1,6 @@
 {
   "source": "COCO val2017, person_keypoints",
-  "task": "разметка скелетов, 17 точек COCO",
+  "task": "skeleton annotation, 17 COCO keypoints",
   "filters": {
     "people_per_frame": [
       3,
@@ -8,7 +8,7 @@
     ],
     "min_keypoints": 8,
     "min_area": 4000.0,
-    "excluded_subset": "/home/eee/Documents/Projects/detection-annotation-quality/data/subset/selection.json"
+    "excluded_subset": "detection-annotation-quality/data/subset/selection.json"
   },
   "seed": 7,
   "count": 14,

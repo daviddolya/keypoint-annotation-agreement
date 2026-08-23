@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Сборка README из метрик и разбора пар (P4d, шаг 6).
+"""Builds the README from the metrics and the worst-pair review.
 
-Приём перенесён из A2 и A3 и работает так же: числа генерируются из
-reports/keypoint_metrics.json, а твои комментарии сохраняются. Текст между
-маркерами <!-- note:ключ --> и <!-- /note --> вычитывается из существующего
-README и переносится в новый, поэтому пересборка после переразметки
-ничего не затирает.
+The trick is carried over from the polygon and tracking projects and works
+the same way: the numbers are generated from reports/keypoint_metrics.json,
+while hand-written commentary survives. Text between <!-- note:key --> and
+<!-- /note --> is read back from the existing README and carried into the
+new one, so rebuilding after a re-annotation never destroys it.
 
-Единица раздела здесь — ПАРА «эталонный человек — мой человек»: у скелета
-интересен не кадр целиком, а конкретная фигура и то, что в ней разошлось.
+Empty note blocks are never emitted: a marker appears only where there is
+something to say, so the published README carries no placeholders.
+
+The unit of a section here is a PAIR "ground-truth person - my person":
+with skeletons what matters is not the frame but the individual figure and
+what went wrong inside it.
 
     .venv/bin/python tools/build_readme.py
 """
@@ -18,16 +22,24 @@ import json
 import re
 from pathlib import Path
 
-PLACEHOLDER = "> **Что здесь произошло:** _заполнить_"
 NOTE_RE = re.compile(r"<!-- note:(?P<key>[^\s>]+) -->\n(?P<body>.*?)\n<!-- /note -->",
                      re.DOTALL)
+# Empty stubs left by earlier runs; treated as "no note at all".
+PLACEHOLDERS = {"> **What happened here:** _to be written_", "", "_to be written_"}
 
 
 def existing_notes(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
-    return {m.group("key"): m.group("body").strip()
-            for m in NOTE_RE.finditer(path.read_text(encoding="utf-8"))}
+    found = {m.group("key"): m.group("body").strip()
+             for m in NOTE_RE.finditer(path.read_text(encoding="utf-8"))}
+    return {k: v for k, v in found.items() if v not in PLACEHOLDERS}
+
+
+def note_block(key: str, notes: dict[str, str]) -> list[str]:
+    """A marker block, but only when there is real text to preserve."""
+    body = notes.get(key)
+    return [f"<!-- note:{key} -->", body, "<!-- /note -->", ""] if body else []
 
 
 def main() -> int:
@@ -36,7 +48,7 @@ def main() -> int:
     p.add_argument("--metrics", type=Path, default=Path("reports/keypoint_metrics.json"))
     p.add_argument("--readme", type=Path, default=Path("README.md"))
     p.add_argument("--review", default="reports/review")
-    p.add_argument("--repo", default="keypoint-annotation-agreement")
+    p.add_argument("--repo", default="keypoint-annotation")
     a = p.parse_args()
 
     m = json.loads(a.metrics.read_text(encoding="utf-8"))
@@ -47,59 +59,59 @@ def main() -> int:
              if manifest.exists() else [])
 
     out = [f"# {a.repo}", "",
-           "Согласованность разметки скелетов: 17 точек COCO на человека.",
-           f"{m['frames']} кадров val2017 размечены вручную вслепую от эталона.",
-           "Считаются три разные вещи: точность координат (OKS), точность",
-           "по каждому суставу отдельно (PCK) и согласие по флагу видимости —",
-           "последнее не видно ни одной метрике по координатам.",
-           "Этап A4 портфолио по контролю качества разметки.", "",
-           "<!-- note:intro -->", notes.get("intro", PLACEHOLDER), "<!-- /note -->", "",
-           "## Результат", "", "| | |", "|---|---|",
-           f"| кадров | {m['frames']} |",
-           f"| людей своих / эталонных | {m['my_people']} / {m['gt_people']} |",
-           f"| сопоставлено пар | {m['matched']} |",
-           f"| **OKS по общим точкам** | **{m['oks_common']:.3f}** |",
-           f"| OKS COCO-style | {m['oks_coco']:.3f} |",
-           f"| PCK@{m['pck_mult']:g}σ | {m['pck']:.3f} |",
-           f"| **согласие по флагу видимости** | **{m['flag_agreement']:.3f}** |",
-           f"| каппа Коэна по флагу | {m['flag_kappa']:.3f} |", "",
-           f"Сопоставление людей — по рамке из размеченных точек, порог IoU "
-           f"{m['match_threshold']}: ось независима от метрики, иначе человек",
-           "с перепутанными сторонами не находит пары и худший случай просто",
-           "исчезает из отчёта.", ""]
+           "Annotation agreement for human skeletons: 17 COCO keypoints per person.",
+           f"{m['frames']} val2017 frames were annotated by hand, blind to the",
+           "ground truth. Three different things are measured: coordinate accuracy",
+           "(OKS), accuracy per individual joint (PCK), and agreement on the",
+           "visibility flag -- the last of which no coordinate metric can see.",
+           "Stage A4 of an annotation-quality portfolio.", ""]
+    out += note_block("intro", notes)
+    out += ["## Result", "", "| | |", "|---|---|",
+            f"| frames | {m['frames']} |",
+            f"| people, mine / ground truth | {m['my_people']} / {m['gt_people']} |",
+            f"| matched pairs | {m['matched']} |",
+            f"| **OKS over common points** | **{m['oks_common']:.3f}** |",
+            f"| OKS COCO-style | {m['oks_coco']:.3f} |",
+            f"| PCK@{m['pck_mult']:g} sigma | {m['pck']:.3f} |",
+            f"| **visibility-flag agreement** | **{m['flag_agreement']:.3f}** |",
+            f"| Cohen's kappa on the flag | {m['flag_kappa']:.3f} |", "",
+            f"People are matched by the box built from the annotated keypoints, "
+            f"IoU threshold {m['match_threshold']}: that axis stays independent of",
+            "the metric, otherwise a person with swapped left and right sides finds",
+            "no match and the worst case simply vanishes from the report.", ""]
 
     if m.get("unmatched_gt") or m.get("unmatched_mine"):
-        out += [f"Без пары: эталонных {m['unmatched_gt']}, своих "
-                f"{m['unmatched_mine']} (из них {m['unmatched_mine_filtered_out']} — "
-                "человек, которого отбросил фильтр эталона, "
-                f"{m['unmatched_mine_invented']} — не соответствует эталону ни в чём).", ""]
+        out += [f"Unmatched: {m['unmatched_gt']} in the ground truth, "
+                f"{m['unmatched_mine']} of mine ({m['unmatched_mine_filtered_out']} of "
+                "them match a person the ground-truth filter dropped, "
+                f"{m['unmatched_mine_invented']} match nothing in the ground truth).", ""]
 
-    out += ["## Что метрика по координатам не видит", "",
-            "Флаг видимости у точки — отдельная ось разметки, и OKS её не",
-            "затрагивает вовсе: разметка с идеальными координатами, где каждая",
-            "точка помечена видимой, даёт OKS ровно 1.000. Поэтому согласие по",
-            "флагу считается отдельно, а рядом стоит каппа: доля совпадений",
-            "высока сама по себе, если один из флагов встречается чаще прочих.", "",
-            "| эталон \\ моё | v=0 не размечена | v=1 не видна | v=2 видна |",
+    out += ["## What a coordinate metric cannot see", "",
+            "The visibility flag is a separate axis of the annotation, and OKS does",
+            "not touch it at all: an annotation with perfect coordinates in which",
+            "every point is marked visible scores exactly 1.000. Flag agreement is",
+            "therefore computed on its own, with kappa next to it: raw agreement",
+            "looks high by itself whenever one flag value dominates the rest.", "",
+            "| GT \\ mine | v=0 not annotated | v=1 not visible | v=2 visible |",
             "|---|---|---|---|"]
-    labels = ["v=0 не размечена", "v=1 не видна", "v=2 видна"]
+    labels = ["v=0 not annotated", "v=1 not visible", "v=2 visible"]
     for i in range(3):
         row = m["flag_matrix"][i]
         out.append(f"| {labels[i]} | {row[0]} | {row[1]} | {row[2]} |")
     out.append("")
     if (review / "flag_by_joint.png").exists():
-        out += [f"![расхождение по флагу]({a.review}/flag_by_joint.png)", ""]
+        out += [f"![flag disagreement by joint]({a.review}/flag_by_joint.png)", ""]
 
-    out += ["## Где промахивается рука", "",
-            f"Допуск PCK — одна сигма COCO для этого сустава на этом масштабе,",
-            "то есть вклад точки в OKS не ниже exp(-1/2) = 0.607. Порог назван",
-            "заранее и под результат не подбирался.", ""]
+    out += ["## Where the hand misses", "",
+            "The PCK tolerance is one COCO sigma for that joint at that scale, i.e.",
+            "a contribution to OKS of no less than exp(-1/2) = 0.607. The threshold",
+            "was fixed in advance and never tuned to the result.", ""]
     if (review / "pck_by_joint.png").exists():
-        out += [f"![PCK по суставам]({a.review}/pck_by_joint.png)", ""]
+        out += [f"![PCK by joint]({a.review}/pck_by_joint.png)", ""]
     worst = sorted(m["pck_per_joint"].items(),
                    key=lambda kv: (kv[1]["hit"] / kv[1]["total"]
                                    if kv[1]["total"] else 1.0))[:5]
-    out += ["| худшие суставы | PCK | точек | средний промах, px |", "|---|---|---|---|"]
+    out += ["| worst joints | PCK | points | mean offset, px |", "|---|---|---|---|"]
     for name, v in worst:
         if not v["total"]:
             continue
@@ -108,37 +120,70 @@ def main() -> int:
     out.append("")
 
     if m.get("oks_by_size"):
-        out += ["| размер человека | пар | OKS |", "|---|---|---|"]
-        for name in ("мелкие", "средние", "крупные"):
+        out += ["| person size | pairs | OKS |", "|---|---|---|"]
+        for name in ("small", "medium", "large"):
             b = m["oks_by_size"].get(name)
             if b:
                 out.append(f"| {name} | {b['pairs']} | {b['oks']:.3f} |")
         out.append("")
 
     if pairs:
-        out += ["## Разбор худших пар", "",
-                "Синий — эталон, оранжевый — моё. Точка закрашена, если помечена",
-                "видимой, и пустая, если помечена невидимой.", ""]
+        out += ["## The worst pairs", "",
+                "Blue is the ground truth, orange is mine. A point is filled when it",
+                "is marked visible and hollow when it is marked not visible.", ""]
         for item in pairs:
             key = f"{Path(item['image']).stem}_{item['gt_id']}"
-            out += [f"### {item['image']} · эталон #{item['gt_id']}", "",
+            out += [f"### {item['image']} - ground truth #{item['gt_id']}", "",
                     f"OKS {item['oks']:.3f}", "",
-                    f"![{key}]({a.review}/{item['file']})", "",
-                    f"<!-- note:{key} -->", notes.get(key, PLACEHOLDER),
-                    "<!-- /note -->", ""]
+                    f"![{key}]({a.review}/{item['file']})", ""]
+            out += note_block(key, notes)
 
-    out += ["## Что дальше", "",
-            "- Инструкция и решения по спорным случаям — "
+    out += ["## Reproduce", "",
+            "Python 3.10+ and Pillow; Pillow is needed for the rendering only, all",
+            "metrics run on the standard library (the Hungarian algorithm included).",
+            "", "```bash",
+            "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+            "",
+            "# the four self-test cases with answers known in advance",
+            ".venv/bin/python common/oks.py --selftest",
+            "",
+            "# ground truth (10 MB, not stored in the repository)",
+            ".venv/bin/python tools/fetch_keypoints.py --out data/coco",
+            "",
+            "# sanity-check the export before computing anything",
+            ".venv/bin/python tools/check_export.py \\",
+            "    --mine annotation/person_keypoints_default.json \\",
+            "    --selection data/subset/selection_keypoints.json",
+            "",
+            "# the numbers in this README",
+            ".venv/bin/python annotation/keypoint_agreement.py \\",
+            "    --gt data/coco/person_keypoints_val2017.json \\",
+            "    --mine annotation/person_keypoints_default.json \\",
+            "    --selection data/subset/selection_keypoints.json \\",
+            "    --out reports/keypoint_metrics.json",
+            "",
+            "# the pictures above, then this README",
+            ".venv/bin/python tools/render_skeletons.py \\",
+            "    --gt data/coco/person_keypoints_val2017.json \\",
+            "    --mine annotation/person_keypoints_default.json \\",
+            "    --selection data/subset/selection_keypoints.json \\",
+            "    --images data/subset/frames --out reports/review",
+            f".venv/bin/python tools/build_readme.py --repo {a.repo}",
+            "```", "",
+            "The 14 frames and the selection manifest are committed, so the numbers",
+            "can be reproduced without rebuilding the subset.", ""]
+
+    out += ["## What else is here", "",
+            "- Annotation guidelines and the disputed-case decisions -- "
             "[annotation/GUIDELINES.md](annotation/GUIDELINES.md)",
-            "- Полный отчёт — [reports/keypoint_report.md](reports/keypoint_report.md)",
-            "- Долг по написанному не мной коду — [DEBT.md](DEBT.md)", "",
-            "README пересобирается `tools/build_readme.py`; комментарии между маркерами",
-            "`<!-- note:… -->` и `<!-- /note -->` при пересборке сохраняются.", ""]
+            "- Full report -- [reports/keypoint_report.md](reports/keypoint_report.md)",
+            "- Code I did not write myself, and what I owe an explanation for -- "
+            "[DEBT.md](DEBT.md)", "",
+            "This README is generated by `tools/build_readme.py` from",
+            "`reports/keypoint_metrics.json`; edit the report, not this file.", ""]
 
     a.readme.write_text("\n".join(out), encoding="utf-8")
-    kept = sum(1 for v in notes.values() if v != PLACEHOLDER)
-    print(f"{a.readme}: разделов по парам {len(pairs)}, "
-          f"сохранено комментариев {kept}")
+    print(f"{a.readme}: pair sections {len(pairs)}, notes preserved {len(notes)}")
     return 0
 
 

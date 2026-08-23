@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""Готовый конфиг скелета COCO-17 для CVAT (P4d, шаг 4).
+"""A ready-made COCO-17 skeleton label config for CVAT.
 
-Собирать скелет из семнадцати точек мышью в конфигураторе — самая муторная
-часть этапа и при этом чистая настройка: никакой учебной сложности в ней нет,
-а ошибиться в порядке точек легко, и ошибка тихая — метрика посчитается
-и выдаст мусор. Поэтому конфиг генерируется и вставляется целиком.
+Assembling a seventeen-point skeleton by hand in the label configurator is
+the most tedious part of the setup and pure configuration at that: the point
+order is easy to get wrong, and the mistake is silent -- the metric will
+compute happily and return garbage. So the config is generated and pasted in
+as a whole.
 
-Что внутри:
-  * 17 подметок с каноническими именами COCO в каноническом порядке;
-  * 19 рёбер скелета COCO;
-  * координаты узлов взяты из рабочей спецификации в репозитории CVAT
-    (serverless/pytorch/mmpose/hrnet32/nuclio/function.yaml) — там тот же
-    порядок точек;
-  * цвет: левая половина синяя, правая оранжевая, нос зелёный. Путаница
-    сторон — самая частая ошибка на скелете, и глазом она видна сразу.
+What is inside:
+  * 17 sublabels with the canonical COCO names in the canonical order;
+  * the 19 COCO skeleton edges;
+  * node coordinates taken from a working spec in the CVAT repository
+    (serverless/pytorch/mmpose/hrnet32/nuclio/function.yaml), which uses the
+    same point order;
+  * colour: the left half blue, the right half orange, the nose green.
+    Swapped sides are the most common skeleton mistake, and this makes them
+    visible at a glance.
 
     python3 tools/make_skeleton_label.py --out cvat_coco17_skeleton.json
 
-Дальше содержимое файла целиком вставляется во вкладку Raw редактора меток.
+The contents of that file are then pasted into the Raw tab of the label editor.
 """
 
 import argparse
@@ -29,8 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 
 from keypoints import COCO_KEYPOINTS, SKELETON  # noqa: E402
 
-# Узлы в системе координат конфигуратора (0..100), 1-based индексация,
-# порядок совпадает с COCO_KEYPOINTS.
+# Nodes in the configurator coordinate system (0..100), 1-based indexing,
+# order identical to COCO_KEYPOINTS.
 NODES = [
     (48.876, 9.485),    # nose
     (51.229, 7.637),    # left_eye
@@ -105,9 +107,9 @@ def main() -> int:
                         encoding="utf-8")
 
     label = spec[0]
-    print(f"{args.out}: метка «{label['name']}», "
-          f"подметок {len(label['sublabels'])}, рёбер {len(SKELETON)}")
-    print("порядок точек (он же порядок в экспорте, менять нельзя):")
+    print(f"{args.out}: label \"{label['name']}\", "
+          f"sublabels {len(label['sublabels'])}, edges {len(SKELETON)}")
+    print("point order (the same order the export uses -- do not change it):")
     for i, name in enumerate(COCO_KEYPOINTS):
         print(f"  {i + 1:2d}. {name}")
     return 0

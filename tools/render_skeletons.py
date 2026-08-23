@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Отрисовка расхождений по скелетам (P4d, оснастка к шагу 6).
+"""Renders skeleton disagreements.
 
-Число «OKS 0.30» не говорит ничего, пока не видно, что именно разошлось:
-промах по всем точкам сразу, одна улетевшая рука или перепутанные стороны.
-Три вещи, каждая отвечает на свой вопрос.
+The number "OKS 0.30" says nothing until you can see what actually went
+wrong: an error spread over all points, one arm flying off, or swapped
+sides. Three outputs, each answering its own question.
 
-    пары      вырезка вокруг человека с обоими скелетами. Синий — эталон,
-              оранжевый — твой. Точка закрашена, если помечена видимой,
-              и пустая, если помечена невидимой. Подпись — OKS пары
-    суставы   столбики PCK по каждому из 17 суставов: где именно промах
-    флаги     столбики расхождений по флагу видимости на каждом суставе:
-              где именно вы с эталоном разошлись не в координате, а в том,
-              видно точку или нет
+    pairs   a crop around the person carrying both skeletons. Blue is the
+            ground truth, orange is mine. A point is filled when marked
+            visible and hollow when marked not visible. The caption is the
+            OKS of the pair
+    joints  PCK bars for each of the 17 joints: where exactly the error is
+    flags   bars of visibility-flag disagreement per joint: where the two
+            sides diverged not on the coordinate but on whether the point
+            is visible at all
 
     .venv/bin/python tools/render_skeletons.py \
         --gt data/coco/person_keypoints_val2017.json \
@@ -49,8 +50,10 @@ FONT_CANDIDATES = [
 
 
 def load_font(size: int) -> tuple[object, bool]:
-    """Возвращает (шрифт, поддерживает ли кириллицу). Встроенный растровый
-    шрифт PIL кириллицы не знает — подписи вышли бы квадратами."""
+    """Returns a TrueType font when one is available, and a flag saying so.
+
+    The bitmap font bundled with PIL cannot be scaled, so the captions come
+    out tiny; a real font is preferred whenever the system has one."""
     for path in FONT_CANDIDATES:
         if Path(path).exists():
             try:
@@ -84,7 +87,7 @@ def draw_person(d: ImageDraw.ImageDraw, p: Person, color, scale: float,
 
 
 def render_pair(image_path: Path, gt: Person, mine: Person, value: float,
-                out: Path, font, cyrillic: bool, target: int = 520) -> None:
+                out: Path, font, target: int = 520) -> None:
     img = Image.open(image_path).convert("RGB")
     xs, ys = [], []
     for p in (gt, mine):
@@ -106,22 +109,20 @@ def render_pair(image_path: Path, gt: Person, mine: Person, value: float,
     d = ImageDraw.Draw(canvas)
     draw_person(d, gt, REF_COLOR, scale, x0, y0 - 28 / scale)
     draw_person(d, mine, MY_COLOR, scale, x0, y0 - 28 / scale)
-    caption = (f"OKS {value:.3f}  |  эталон синий, моё оранжевое  |  "
-               f"пустая точка — помечена невидимой" if cyrillic
-               else f"OKS {value:.3f} | ref blue, mine orange")
+    caption = (f"OKS {value:.3f}  |  GT blue, mine orange  |  "
+               f"hollow = not visible")
     d.text((6, 6), caption, fill=(20, 20, 20), font=font)
     canvas.save(out, quality=92)
 
 
-def render_joints(per_joint: dict, out: Path, font, cyrillic: bool,
-                  mult: float) -> None:
+def render_joints(per_joint: dict, out: Path, font, mult: float) -> None:
     rows = [(COCO_KEYPOINTS[i], per_joint[i][0], per_joint[i][1]) for i in range(17)]
     rows = [(n, h, t) for n, h, t in rows if t]
     rows.sort(key=lambda r: r[1] / r[2])
     w, row_h, left = 640, 26, 150
     img = Image.new("RGB", (w, row_h * len(rows) + 44), (255, 255, 255))
     d = ImageDraw.Draw(img)
-    title = (f"PCK@{mult:g}σ по суставам" if cyrillic else f"PCK@{mult:g}sigma by joint")
+    title = f"PCK@{mult:g} sigma by joint"
     d.text((10, 10), title, fill=(20, 20, 20), font=font)
     bar_w = w - left - 90
     for k, (name, hit, tot) in enumerate(rows):
@@ -136,11 +137,11 @@ def render_joints(per_joint: dict, out: Path, font, cyrillic: bool,
     img.save(out)
 
 
-def render_flags(pairs, out: Path, font, cyrillic: bool) -> None:
-    """Доля расхождений по флагу на каждом суставе.
+def render_flags(pairs, out: Path, font) -> None:
+    """Share of flag disagreements per joint.
 
-    Слот учитывается, если хотя бы одна сторона его разметила: слот, который
-    обе стороны пропустили, — согласие ни о чём.
+    A slot counts if at least one side annotated it: a slot both sides
+    skipped is agreement about nothing.
     """
     diff = [0] * 17
     total = [0] * 17
@@ -157,8 +158,7 @@ def render_flags(pairs, out: Path, font, cyrillic: bool) -> None:
     w, row_h, left = 640, 26, 150
     img = Image.new("RGB", (w, row_h * len(rows) + 44), (255, 255, 255))
     d = ImageDraw.Draw(img)
-    title = ("расхождение по флагу видимости, доля слотов" if cyrillic
-             else "visibility flag disagreement, share of slots")
+    title = "visibility flag disagreement, share of slots"
     d.text((10, 10), title, fill=(20, 20, 20), font=font)
     bar_w = w - left - 90
     for k, (name, bad, tot) in enumerate(rows):
@@ -193,27 +193,26 @@ def main() -> int:
     res = evaluate(gt, mine, "bbox", 0.3, args.pck_mult)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    font, cyrillic = load_font(15)
-    if not cyrillic:
-        print("TrueType-шрифт не найден: подписи будут латиницей")
+    font, truetype = load_font(15)
+    if not truetype:
+        print("no TrueType font found: captions will use the small bitmap font")
 
     scored = [(g, m, oks(g, m)) for g, m in res["pairs"]]
     scored = sorted([t for t in scored if t[2] is not None], key=lambda t: t[2])
     made = []
     for k, (g, m, value) in enumerate(scored[:args.worst], 1):
         name = f"{k:02d}_{Path(g.image).stem}_gt{g.ident}.jpg"
-        render_pair(args.images / g.image, g, m, value, args.out / name,
-                    font, cyrillic)
+        render_pair(args.images / g.image, g, m, value, args.out / name, font)
         made.append({"file": name, "image": g.image, "gt_id": g.ident,
                      "my_id": m.ident, "oks": value})
     render_joints(res["pck_per_joint"], args.out / "pck_by_joint.png",
-                  font, cyrillic, args.pck_mult)
-    render_flags(res["pairs"], args.out / "flag_by_joint.png", font, cyrillic)
+                  font, args.pck_mult)
+    render_flags(res["pairs"], args.out / "flag_by_joint.png", font)
 
     (args.out / "pairs_manifest.json").write_text(
         json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"пар отрисовано {len(made)}, плюс pck_by_joint.png и flag_by_joint.png")
-    print(f"каталог: {args.out}")
+    print(f"pairs rendered {len(made)}, plus pck_by_joint.png and flag_by_joint.png")
+    print(f"directory: {args.out}")
     return 0
 
 

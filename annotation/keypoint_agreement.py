@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-"""Согласие по скелетам: OKS, PCK по суставам, флаг видимости (P4d, шаг 5).
+"""Skeleton agreement: OKS, per-joint PCK, visibility flag.
 
-Главный код этапа. Конвейер из четырёх стадий, каждая отвечает на свой
-вопрос, и путать их нельзя:
+The main script of the project. A pipeline of four stages, each answering
+its own question, and they must not be conflated:
 
-  1. КОГО С КЕМ СРАВНИВАТЬ. Внутри кадра моих людей надо сопоставить
-     с эталонными. Венгерский алгоритм по IoU рамки, построенной по
-     размеченным точкам. Ось независима от метрики: сопоставили по одному,
-     меряем другим.
-  2. НАСКОЛЬКО ТОЧНО СТОЯТ ТОЧКИ. OKS на каждой паре, два режима рядом —
-     по общим точкам и COCO-style. Расхождение между ними означает, что
-     проблема не в координатах, а в том, какие точки вообще размечать.
-  3. ГДЕ ИМЕННО ПРОМАХ. PCK по каждому из 17 суставов: доля точек,
-     попавших в допуск одной сигмы. Здесь видно, что запястья и лодыжки
-     сходятся хуже плеч, и это материал для инструкции.
-  4. ЧТО МЕТРИКА ПО КООРДИНАТАМ НЕ ВИДИТ. Согласие по флагу видимости
-     отдельным числом плюс матрица 3x3 и каппа Коэна.
+  1. WHO IS COMPARED WITH WHOM. Within a frame, my people have to be matched
+     to the ground-truth ones. Hungarian algorithm over the IoU of the box
+     built from the annotated points. The axis is independent of the metric:
+     matched by one thing, measured by another.
+  2. HOW PRECISELY THE POINTS SIT. OKS on every pair, two modes side by side
+     -- over common points and COCO-style. A gap between them means the
+     problem is not the coordinates but which points to annotate at all.
+  3. WHERE THE ERROR IS. PCK for each of the 17 joints: the share of points
+     inside a one-sigma tolerance. This is where wrists and ankles turn out
+     to agree worse than shoulders, which is material for the guidelines.
+  4. WHAT A COORDINATE METRIC CANNOT SEE. Visibility-flag agreement as a
+     separate number, plus a 3x3 matrix and Cohen's kappa.
 
-Плюс разбор остатка: мой человек без пары — это либо кто-то, кого фильтр
-эталона отбросил (мелкий, размечен тремя точками), либо разметка того,
-чего в эталоне нет вовсе. Разные вещи, и в отчёте их не смешивают.
+Plus the leftovers: a person of mine without a match is either someone the
+ground-truth filter dropped (too small, annotated with three points) or an
+annotation of something the ground truth does not contain at all. Different
+things, and a report must not merge them.
 
     python3 annotation/keypoint_agreement.py \
         --gt data/coco/person_keypoints_val2017.json \
-        --mine annotation/my_labels/person_keypoints_default.json \
+        --mine annotation/person_keypoints_default.json \
         --selection data/subset/selection_keypoints.json \
         --out reports/keypoint_metrics.json
 """
@@ -43,8 +44,8 @@ from oks import evaluate, oks, point_errors  # noqa: E402
 def classify_extra(lost_mine: list[Person], all_gt: list[Person],
                    kept_ids: set[int], threshold: float = 0.3
                    ) -> tuple[list[Person], list[Person]]:
-    """Мои люди без пары: кто из них соответствует отброшенному фильтром
-    эталонному человеку, а кто не соответствует никому."""
+    """My unmatched people: which of them correspond to a ground-truth person
+    dropped by the filter, and which correspond to nobody at all."""
     pool = by_image([p for p in all_gt if p.ident not in kept_ids])
     filtered_out, invented = [], []
     for m in lost_mine:
@@ -76,48 +77,48 @@ def main() -> int:
     res = evaluate(gt, mine, args.match, args.match_threshold, args.pck_mult)
     pairs = res["pairs"]
 
-    print(f"кадров {len(images)}; эталонных людей {len(gt)}, своих {len(mine)}")
-    print(f"сопоставление по {'рамке из точек' if args.match == 'bbox' else 'OKS'}, "
-          f"порог {args.match_threshold}: пар {res['matched']}, "
-          f"эталонных без пары {res['unmatched_gt']}, своих без пары {res['unmatched_mine']}")
+    print(f"frames {len(images)}; ground-truth people {len(gt)}, mine {len(mine)}")
+    print(f"matching by {'keypoint box' if args.match == 'bbox' else 'OKS'}, "
+          f"threshold {args.match_threshold}: pairs {res['matched']}, "
+          f"unmatched in GT {res['unmatched_gt']}, unmatched of mine {res['unmatched_mine']}")
 
     kept = {p.ident for p in gt}
     filtered_out, invented = classify_extra(res["lost_mine"], all_gt, kept)
     if res["lost_mine"]:
-        print(f"  из своих без пары: {len(filtered_out)} — человек, которого "
-              f"отбросил фильтр эталона; {len(invented)} — не соответствует "
-              "ничему в эталоне")
+        print(f"  of my unmatched: {len(filtered_out)} match a person the "
+              f"ground-truth filter dropped; {len(invented)} match nothing "
+              "in the ground truth")
 
-    # сверка второго способа сопоставления: совпало ли разбиение
+    # cross-check the other matching mode: did the partition come out the same
     other = "oks" if args.match == "bbox" else "bbox"
     alt = evaluate(gt, mine, other, args.match_threshold, args.pck_mult)
     same = {(g.ident, m.ident) for g, m in pairs} == {
         (g.ident, m.ident) for g, m in alt["pairs"]}
     if same:
-        print(f"  сопоставление по «{other}» дало то же разбиение")
+        print(f"  matching by \"{other}\" produced the same partition")
     else:
-        print(f"  сопоставление по «{other}» дало ДРУГОЕ разбиение: "
-              f"пар {alt['matched']} вместо {res['matched']}, "
-              f"OKS {alt['oks_common']:.3f} вместо {res['oks_common']:.3f}. "
-              "Разницу назвать в отчёте: если пар стало меньше, а OKS вырос — "
-              "из счёта выпали именно худшие пары.")
+        print(f"  matching by \"{other}\" produced a DIFFERENT partition: "
+              f"pairs {alt['matched']} instead of {res['matched']}, "
+              f"OKS {alt['oks_common']:.3f} instead of {res['oks_common']:.3f}. "
+              "State the difference in the report: if there are fewer pairs and "
+              "OKS went up, the worst pairs are what dropped out of the count.")
 
     if not pairs:
-        raise SystemExit("ни одной пары: проверь экспорт через tools/check_export.py")
+        raise SystemExit("no pairs at all: check the export with tools/check_export.py")
 
     per_pair = [(g, m, oks(g, m)) for g, m in pairs]
     values = [v for _, _, v in per_pair if v is not None]
     coco_values = [v for v in (oks(g, m, "coco") for g, m in pairs) if v is not None]
     print()
-    print(f"OKS по общим точкам: {statistics.mean(values):.3f} "
-          f"(медиана {statistics.median(values):.3f}, "
-          f"минимум {min(values):.3f})")
-    print(f"OKS COCO-style (не поставленная точка — промах): "
+    print(f"OKS over common points: {statistics.mean(values):.3f} "
+          f"(median {statistics.median(values):.3f}, "
+          f"minimum {min(values):.3f})")
+    print(f"OKS COCO-style (a point I did not place counts as a miss): "
           f"{statistics.mean(coco_values):.3f}")
-    print(f"PCK@{args.pck_mult:g}σ по всем точкам: {res['pck']:.3f}")
+    print(f"PCK@{args.pck_mult:g} sigma over all points: {res['pck']:.3f}")
 
     print()
-    print("| сустав | PCK | точек | средний промах, px |")
+    print("| joint | PCK | points | mean offset, px |")
     print("|---|---|---|---|")
     dist: dict[int, list[float]] = {i: [] for i in range(17)}
     for g, m in pairs:
@@ -136,35 +137,35 @@ def main() -> int:
 
     f = res["flags"]
     print()
-    print(f"согласие по флагу видимости: {f['agreement']:.3f}, "
-          f"каппа Коэна {f['kappa']:.3f} (слотов {f['total']})")
-    print("| эталон \\ моё | v=0 | v=1 | v=2 |")
+    print(f"visibility-flag agreement: {f['agreement']:.3f}, "
+          f"Cohen's kappa {f['kappa']:.3f} (slots {f['total']})")
+    print("| GT \\ mine | v=0 | v=1 | v=2 |")
     print("|---|---|---|---|")
     for i in range(3):
         print(f"| v={i} | {f['matrix'][i][0]} | {f['matrix'][i][1]} | {f['matrix'][i][2]} |")
 
     areas = sorted(g.area for g, _ in pairs)
     q1, q3 = areas[len(areas) // 4], areas[3 * len(areas) // 4]
-    groups: dict[str, list[float]] = {"мелкие": [], "средние": [], "крупные": []}
+    groups: dict[str, list[float]] = {"small": [], "medium": [], "large": []}
     for g, _, v in per_pair:
         if v is None:
             continue
-        groups["мелкие" if g.area <= q1 else
-               ("средние" if g.area <= q3 else "крупные")].append(v)
+        groups["small" if g.area <= q1 else
+               ("medium" if g.area <= q3 else "large")].append(v)
     print()
-    print("| размер человека | пар | OKS |")
+    print("| person size | pairs | OKS |")
     print("|---|---|---|")
-    for name in ("мелкие", "средние", "крупные"):
+    for name in ("small", "medium", "large"):
         if groups[name]:
             print(f"| {name} | {len(groups[name])} | "
                   f"{statistics.mean(groups[name]):.3f} |")
 
     worst = sorted([p for p in per_pair if p[2] is not None], key=lambda t: t[2])[:5]
     print()
-    print("худшие пары:")
+    print("worst pairs:")
     for g, m, v in worst:
-        print(f"  {g.image} эталон#{g.ident} ↔ моё#{m.ident}: OKS {v:.3f}, "
-              f"размечено {g.labeled}/{m.labeled}")
+        print(f"  {g.image} GT#{g.ident} <-> mine#{m.ident}: OKS {v:.3f}, "
+              f"annotated {g.labeled}/{m.labeled}")
 
     doc = {
         "frames": len(images),
@@ -196,7 +197,7 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     print()
-    print(f"метрики: {args.out}")
+    print(f"metrics: {args.out}")
     return 0
 
 

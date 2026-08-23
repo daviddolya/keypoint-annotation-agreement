@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Цена пикселя: во что превращается промах в N px (P4d, шаг 2).
+"""The price of a pixel: what an N px error turns into.
 
-Берёт эталон и портит его известным образом — сдвигает КАЖДУЮ точку на
-одно и то же число пикселей. Аккуратность при этом всюду одинаковая,
-и всё, что видно в таблице, — это работа нормировки OKS.
+Takes the ground truth and corrupts it in a known way -- offsets EVERY
+point by the same number of pixels. Accuracy is therefore uniform, and
+everything visible in the tables is the work of the OKS normalisation.
 
-Три среза одного и того же замера:
-  * сдвиг -> OKS в среднем;
-  * тот же сдвиг по группам площади: мелкий человек наказывается сильнее;
-  * тот же сдвиг по суставам: нос дороже бедра.
+Three slices of one and the same measurement:
+  * offset -> mean OKS;
+  * the same offset by area group: a small person is punished harder;
+  * the same offset by joint: the nose costs more than the hip.
 
     python3 tools/oks_sensitivity.py --ann data/coco/person_keypoints_val2017.json \
         --images data/subset/selection_keypoints.json
@@ -42,7 +42,7 @@ def main() -> int:
     ap.add_argument("--min-kp", type=int, default=8)
     ap.add_argument("--min-area", type=float, default=4000.0)
     ap.add_argument("--probe", type=float, default=8.0,
-                    help="сдвиг, на котором делаются разбивки")
+                    help="the offset the breakdowns are computed at")
     args = ap.parse_args()
 
     images = None
@@ -50,10 +50,10 @@ def main() -> int:
         images = set(json.loads(args.images.read_text(encoding="utf-8"))["files"])
     people, _ = load_coco_keypoints(args.ann, images=images,
                                     min_kp=args.min_kp, min_area=args.min_area)
-    print(f"людей {len(people)}")
+    print(f"people {len(people)}")
 
     print()
-    print("| сдвиг всех точек, px | средний OKS | медиана | доля людей OKS < 0.5 |")
+    print("| offset of every point, px | mean OKS | median | share of people with OKS < 0.5 |")
     print("|---|---|---|---|")
     for px in SHIFTS:
         vals = [oks(p, shifted(p, px)) for p in people]
@@ -64,27 +64,27 @@ def main() -> int:
 
     areas = sorted(p.area for p in people)
     q1, q3 = areas[len(areas) // 4], areas[3 * len(areas) // 4]
-    groups: dict[str, list[float]] = {"мелкие": [], "средние": [], "крупные": []}
+    groups: dict[str, list[float]] = {"small": [], "medium": [], "large": []}
     for p in people:
         v = oks(p, shifted(p, args.probe))
         if v is None:
             continue
-        name = "мелкие" if p.area <= q1 else ("средние" if p.area <= q3 else "крупные")
+        name = "small" if p.area <= q1 else ("medium" if p.area <= q3 else "large")
         groups[name].append(v)
     print()
-    print(f"тот же сдвиг {args.probe:.0f} px по группам площади "
-          f"(границы квартилей: {q1:.0f} и {q3:.0f} px²)")
-    print("| группа | людей | средний OKS |")
+    print(f"the same {args.probe:.0f} px offset by area group "
+          f"(quartile boundaries: {q1:.0f} and {q3:.0f} px2)")
+    print("| group | people | mean OKS |")
     print("|---|---|---|")
-    for name in ("мелкие", "средние", "крупные"):
+    for name in ("small", "medium", "large"):
         print(f"| {name} | {len(groups[name])} | {statistics.mean(groups[name]):.3f} |")
 
     median_area = statistics.median(areas)
     s = math.sqrt(median_area)
     print()
-    print(f"тот же сдвиг {args.probe:.0f} px по суставам, "
-          f"человек медианной площади ({median_area:.0f} px²)")
-    print("| сустав | сигма | допуск 1σ, px | вклад точки в OKS |")
+    print(f"the same {args.probe:.0f} px offset by joint, "
+          f"person of median area ({median_area:.0f} px2)")
+    print("| joint | sigma | 1 sigma tolerance, px | contribution to OKS |")
     print("|---|---|---|---|")
     for i in JOINTS_SHOWN:
         contrib = math.exp(-(args.probe ** 2) / (2 * median_area * K[i] ** 2))

@@ -1,114 +1,127 @@
-# Инструкция по разметке скелетов, 17 точек COCO
+# Skeleton annotation guidelines, 17 COCO keypoints
 
-Версия 1, 2026-08-23, до разметки. Датасет: COCO val2017, 14 кадров, разметка вслепую —
-эталон до сдачи не открывается. Правки после разбора расхождений идут ниже отдельным
-разделом с датой; версия 1 остаётся как есть.
+Version 1, 2026-08-23, written before annotating. Dataset: COCO val2017,
+14 frames, annotated blind -- the ground truth is not opened until the batch
+is handed in. Revisions made after the disagreement analysis are appended
+below as a separate dated section; version 1 stays exactly as it was.
 
-## 1. Точка за краем кадра
+## 1. A point beyond the image border
 
-Не ставится вовсе, флаг `v=0` (в CVAT — снять с точки признак и оставить её
-неразмеченной). Координату за границей изображения не досочиняю, к границе не прижимаю.
+Not placed at all, flag `v=0` (in CVAT: leave the point unannotated). I do not
+invent a coordinate outside the image and do not pin the point to the border.
 
-Обоснование: так устроен эталон. Из 40 255 размеченных точек val2017 за пределами
-изображения не лежит ни одна, прижато к границе 11. Правило **противоположно** тому,
-которое я применял к боксам MOT17 на этапе A3: там эталон ведёт бокс за границу кадра,
-и обрезка по границе дала мне 72 пропуска из 77. Конвенция — свойство датасета,
-а не правильности, и объявляется при сдаче партии, а не подразумевается.
+Rationale: that is how the ground truth is built. Of the 40,255 annotated
+points in val2017, not a single one lies outside its image and 11 are pinned
+to the border. This rule is **the opposite** of the one I applied to MOT17
+boxes on the tracking stage, where the ground truth carries a box past the
+edge of the frame and my clip-to-border rule produced 72 of my 77 misses.
+A convention is a property of the dataset, not of correctness, and it gets
+stated when a batch is handed over rather than silently assumed.
 
-Практическое следствие: у человека, обрезанного нижним краем, лодыжки и колени обычно
-не размечаются. В эталоне у таких людей не размечено в среднем 5.3 точки из 17
-против 3.7 у попавших в кадр целиком.
+Practical consequence: on a person cropped by the bottom edge, ankles and
+knees usually go unannotated. In the ground truth such people have on average
+5.3 of 17 points missing, against 3.7 for people fully inside the frame.
 
-## 2. Точка, скрытая телом, одеждой или другим человеком
+## 2. A joint hidden by the body, by clothing or by another person
 
-Ставится с флагом `v=1` (в CVAT — occluded), если положение сустава оценивается
-с точностью примерно до одной сигмы: видна линия плеча, видно направление ноги,
-конечность выходит из-за преграды с обеих сторон.
+Placed with flag `v=1` (in CVAT: occluded) when the position of the joint can
+be estimated to within roughly one sigma: the shoulder line is visible, the
+direction of the leg is visible, the limb emerges from behind the obstacle.
 
-Не ставится вовсе (`v=0`), если оценка была бы догадкой на глаз.
+Not placed at all (`v=0`) when the estimate would be a guess.
 
-Практическая граница. Человек стоит спиной — плечи, бёдра, колени ставлю. Человек
-полностью за другим человеком, торчит одна голова — ставлю только то, что вижу.
-Бедро под свободной одеждой ставлю: линия корпуса даёт его с точностью до сигмы,
-а допуск там 25 px.
+Practical boundary. A person standing with their back to the camera: shoulders,
+hips and knees get placed. A person entirely behind another with only the head
+sticking out: only what I can see gets placed. A hip under loose clothing gets
+placed -- the line of the torso gives it to within a sigma, and the tolerance
+there is 25 px.
 
-Почему не «не видно — не ставлю»: это правило измерено и стоит 62 точки из 620,
-COCO-style OKS падает до 0.886, каппа по флагу до 0.474. Почему не «ставлю всё
-и всегда помечаю видимой»: тогда OKS остаётся ровно 1.000, а каппа обнуляется —
-флаг перестаёт нести информацию.
+Why not "if I cannot see it I do not place it": that rule has been measured
+and it costs 62 points out of 620, dropping COCO-style OKS to 0.886 and kappa
+on the flag to 0.474. Why not "place everything and always mark it visible":
+then OKS stays at exactly 1.000 while kappa falls to zero -- the flag stops
+carrying any information at all.
 
-## 3. Левое и правое при развороте спиной
+## 3. Left and right on a person facing away
 
-Стороны — всегда стороны ЧЕЛОВЕКА, а не картинки. У человека, стоящего спиной,
-левое плечо оказывается слева на изображении; у идущего на камеру — справа.
-Решение принимается один раз на фигуру, по развороту корпуса, и дальше все точки
-следуют ему, включая поставленные по флагу `v=1`.
+Sides are always the sides of the PERSON, not of the picture. On a person
+standing with their back to the camera the left shoulder appears on the left
+of the image; on a person walking towards the camera it appears on the right.
+The decision is taken once per figure, from the orientation of the torso, and
+every point follows it, including the ones placed with flag `v=1`.
 
-Проверка перед сдачей — по цвету скелета в CVAT: левая половина синяя, правая
-оранжевая. Перепутанные стороны на экране не выглядят ошибкой, а метрику рушат:
-при полной перестановке OKS падает до 0.077 при координатах, стоящих на месте.
+Check before handing the figure in -- by the colour of the skeleton in CVAT:
+the left half is blue, the right half orange. Swapped sides do not look like
+a mistake on screen but they wreck the metric: a full swap drops OKS to 0.077
+with every coordinate still in place.
 
-## 4. Кого размечаю вообще
+## 4. Who gets annotated at all
 
-Размечаю человека, если выполнены оба условия: видно или уверенно оценивается
-**не менее восьми** точек И площадь фигуры **не меньше 4000 px²**.
+A person is annotated when both conditions hold: at least **eight** points are
+visible or confidently estimable, AND the area of the figure is at least
+**4000 px²**.
 
-Порог площади: на человеке мельче 2000 px² даже безупречная работа рукой (дрожь 2 px)
-даёт потолок OKS 0.84, а ниже 1000 px² — 0.68. Метрика мерила бы разрешение картинки,
-а не мою аккуратность. Сам эталон ниже 1000 px² не разметил ни одного человека из
-одиннадцати, попавших в мои кадры.
+The area threshold: on a person smaller than 2000 px² even flawless hand work
+(a 2 px tremor) caps OKS at 0.84, and below 1000 px² at 0.68. Below the
+threshold the metric would be measuring the resolution of the picture rather
+than my accuracy. The ground truth itself annotated none of the eleven people
+below 1000 px² that appear in these frames.
 
-Порог в восемь точек совпадает с фильтром скрипта сравнения (`--min-kp 8`): фигура
-с тремя точками даёт OKS по трём точкам, то есть шум, а не измерение.
+The eight-point threshold matches the filter of the comparison script
+(`--min-kp 8`): a figure with three points yields OKS over three points, which
+is noise rather than a measurement.
 
-## 5. Где целюсь точнее
+## 5. Where I aim more carefully
 
-Нос, глаза, уши ставлю с увеличением: допуск одной сигмы там 6–8 px на человеке
-медианного размера, и промах в 8 px оставляет от вклада точки 0.435 по носу.
-Запястья (допуск 15 px) зумлю по необходимости — они чаще перекрыты.
-Плечи, бёдра, лодыжки (допуск 19–26 px) ставлю с общего плана: там тот же промах
-стоит 0.91–0.95, и лишняя минута себя не окупает.
+Nose, eyes and ears are placed zoomed in: the one-sigma tolerance there is
+6-8 px on a person of median size, and an 8 px error leaves 0.435 of the
+contribution of the nose point. Wrists (15 px tolerance) get zoomed when
+needed -- they are occluded more often. Shoulders, hips and ankles (19-26 px)
+are placed at normal zoom: the same error costs 0.91-0.95 there, and the extra
+minute does not pay for itself.
 
 ---
 
-# Правки после разбора расхождений
+# Revisions after the disagreement analysis
 
-Версия 2, 2026-08-23. Разбор прогона на 14 кадрах: 43 пары, OKS 0.895,
-согласие по флагу 0.822 при каппе 0.345. Версия 1 выше не тронута.
+Version 2, 2026-08-23. Based on the run over 14 frames: 43 pairs, OKS 0.895,
+flag agreement 0.822 at kappa 0.345. Version 1 above is left untouched.
 
-## Правка 1 (2026-08-23). Ухо, которого не видно, не размечается
+## Revision 1 (2026-08-23). An ear that cannot be seen is not annotated
 
-Было (раздел 2): скрытый сустав ставится с `v=1`, если положение оценивается
-до сигмы. Ухо под этот критерий проходило, и я ставил его по линии головы.
+Before (section 2): a hidden joint is placed with `v=1` when its position can
+be estimated to within a sigma. An ear passed that test, so I placed it along
+the line of the head.
 
-Стало: **ухо — исключение.** Ухо, скрытое головой, волосами или головным
-убором, не размечается вовсе (`v=0`), даже если его положение очевидно.
+Now: **the ear is an exception.** An ear hidden by the head, by hair or by a
+hat is not annotated at all (`v=0`), however obvious its position.
 
-Что случилось: 14 расхождений по флагу из 110 — это ухо, помеченное мной
-`v=1` там, где эталон не ставит точку вовсе. Правило эталона видно на всём
-val2017: у 41% людей ухо не размечено, при том что плечо не размечено у 3%.
-Объём правки — 13% всех расхождений по флагу.
+What happened: 14 of the 110 flag disagreements are an ear I marked `v=1`
+where the ground truth places no point at all. The ground-truth rule is
+visible across all of val2017: the ear is unannotated for 41% of people,
+against 3% for the shoulder. The revision covers 13% of all flag disagreements.
 
-## Правка 2 (2026-08-23). Проверка сторон обязательна перед сдачей фигуры
+## Revision 2 (2026-08-23). The side check is mandatory before a figure is done
 
-Было (раздел 3): проверка по цвету скелета названа, но как совет.
+Before (section 3): the colour check was named, but as advice.
 
-Стало: **проверка по цвету — обязательный шаг на каждой фигуре**, до перехода
-к следующей. Левая половина синяя, правая оранжевая; у человека, идущего
-на камеру, синяя половина на экране справа.
+Now: **the colour check is a mandatory step on every figure**, before moving
+on to the next one. The left half is blue, the right half orange; on a person
+walking towards the camera the blue half is on the right of the screen.
 
-Что случилось: одна фигура из 43 (`000000551820.jpg`) размечена с
-перестановкой сторон — OKS 0.404 против 0.880 после перестановки обратно.
-Одна фигура стоила 0.011 общего OKS. Разметка не исправлена намеренно:
-правка после сравнения с эталоном — подгонка под эталон.
+What happened: one figure out of 43 (`000000551820.jpg`) was annotated with
+the sides swapped -- OKS 0.404 against 0.880 once swapped back. That single
+figure cost 0.011 of the overall OKS. The annotation was deliberately left
+uncorrected: fixing it after comparing against the ground truth would be
+fitting the annotation to the ground truth.
 
-## Что решено НЕ править
+## What was decided NOT to fix
 
-Граница «видно / не видно» на суставах, кроме ушей. 39 точек помечены мной
-`occluded` там, где эталон считает их видимыми, и 19 наоборот — вместе 53%
-расхождений по флагу. Формулировки, которая убрала бы это расхождение,
-у меня нет: граница субъективна у любого разметчика. Вместо обещания
-починки в отчёт вынесены каппа 0.345 и матрица 3×3.
+The visible / not-visible boundary on joints other than ears. 39 points were
+marked `occluded` by me where the ground truth considers them visible, and 19
+the other way round -- together 53% of the flag disagreements. I have no
+wording that would remove this: the boundary is subjective for any annotator.
+Instead of promising a fix, the report carries kappa 0.345 and the 3x3 matrix.
 
-При сдаче партии эта конвенция объявляется явно, вместе с правилом края
-кадра из раздела 1.
+When a batch is handed over, this convention is stated explicitly, together
+with the border rule from section 1.

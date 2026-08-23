@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Скачивает эталон COCO Keypoints — person_keypoints_val2017.json (P4d, шаг 0).
+"""Downloads the ground truth: person_keypoints_val2017.json.
 
-Файла нет в том, что распаковано для P2: там лежит только instances_val2017.json.
-Официальный источник отдаёт его лишь внутри архива annotations_trainval2017.zip
-на 241 МБ, поэтому берём зеркало HuggingFace, раздающее файлы поштучно:
-10 МБ вместо 241.
+The official source only ships it inside annotations_trainval2017.zip, which
+is 241 MB, so this pulls from a HuggingFace mirror that serves the files one
+by one: 10 MB instead of 241.
 
-Сеть рвётся: на A3 загрузка обрывалась на середине с Network is unreachable.
-Поэтому повторные попытки с паузой, а уже скачанный файл не перекачивается.
+Networks drop: on an earlier stage the download died halfway through with
+"Network is unreachable". Hence the retries with a pause, and an already
+downloaded file is never fetched again.
 
     python3 fetch_keypoints.py --out data/coco
 """
@@ -35,9 +35,9 @@ def download(url: str, dest: Path, attempts: int = 4) -> int:
                 dest.unlink()
             if attempt == attempts:
                 raise
-            print(f"  попытка {attempt} сорвалась ({e}), повтор через {2 * attempt} с")
+            print(f"  attempt {attempt} failed ({e}), retrying in {2 * attempt} s")
             time.sleep(2 * attempt)
-    raise RuntimeError("недостижимо")
+    raise RuntimeError("unreachable")
 
 
 def main() -> int:
@@ -49,15 +49,15 @@ def main() -> int:
     dest = args.out / "person_keypoints_val2017.json"
 
     if dest.exists() and dest.stat().st_size == EXPECTED_BYTES:
-        print(f"{dest} уже на месте, {dest.stat().st_size} б")
+        print(f"{dest} already in place, {dest.stat().st_size} bytes")
         return 0
 
-    print(f"качаю {dest.name} с зеркала HuggingFace")
+    print(f"downloading {dest.name} from the HuggingFace mirror")
     size = download(MIRROR, dest)
-    print(f"{dest} {size} б")
+    print(f"{dest} {size} bytes")
     if size != EXPECTED_BYTES:
-        print(f"размер отличается от ожидаемого ({EXPECTED_BYTES} б) — "
-              "зеркало могло обновиться, проверь файл прежде чем считать")
+        print(f"size differs from the expected {EXPECTED_BYTES} bytes -- the "
+              "mirror may have been updated, check the file before computing")
         return 1
     return 0
 

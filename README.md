@@ -1,60 +1,56 @@
 # keypoint-annotation
 
-Согласованность разметки скелетов: 17 точек COCO на человека.
-14 кадров val2017 размечены вручную вслепую от эталона.
-Считаются три разные вещи: точность координат (OKS), точность
-по каждому суставу отдельно (PCK) и согласие по флагу видимости —
-последнее не видно ни одной метрике по координатам.
-Этап A4 портфолио по контролю качества разметки.
+Annotation agreement for human skeletons: 17 COCO keypoints per person.
+14 val2017 frames were annotated by hand, blind to the
+ground truth. Three different things are measured: coordinate accuracy
+(OKS), accuracy per individual joint (PCK), and agreement on the
+visibility flag -- the last of which no coordinate metric can see.
+Stage A4 of an annotation-quality portfolio.
 
-<!-- note:intro -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-## Результат
+## Result
 
 | | |
 |---|---|
-| кадров | 14 |
-| людей своих / эталонных | 47 / 47 |
-| сопоставлено пар | 43 |
-| **OKS по общим точкам** | **0.895** |
+| frames | 14 |
+| people, mine / ground truth | 47 / 47 |
+| matched pairs | 43 |
+| **OKS over common points** | **0.895** |
 | OKS COCO-style | 0.868 |
-| PCK@1σ | 0.954 |
-| **согласие по флагу видимости** | **0.822** |
-| каппа Коэна по флагу | 0.345 |
+| PCK@1 sigma | 0.954 |
+| **visibility-flag agreement** | **0.822** |
+| Cohen's kappa on the flag | 0.345 |
 
-Сопоставление людей — по рамке из размеченных точек, порог IoU 0.3: ось независима от метрики, иначе человек
-с перепутанными сторонами не находит пары и худший случай просто
-исчезает из отчёта.
+People are matched by the box built from the annotated keypoints, IoU threshold 0.3: that axis stays independent of
+the metric, otherwise a person with swapped left and right sides finds
+no match and the worst case simply vanishes from the report.
 
-Без пары: эталонных 4, своих 4 (из них 2 — человек, которого отбросил фильтр эталона, 2 — не соответствует эталону ни в чём).
+Unmatched: 4 in the ground truth, 4 of mine (2 of them match a person the ground-truth filter dropped, 2 match nothing in the ground truth).
 
-## Что метрика по координатам не видит
+## What a coordinate metric cannot see
 
-Флаг видимости у точки — отдельная ось разметки, и OKS её не
-затрагивает вовсе: разметка с идеальными координатами, где каждая
-точка помечена видимой, даёт OKS ровно 1.000. Поэтому согласие по
-флагу считается отдельно, а рядом стоит каппа: доля совпадений
-высока сама по себе, если один из флагов встречается чаще прочих.
+The visibility flag is a separate axis of the annotation, and OKS does
+not touch it at all: an annotation with perfect coordinates in which
+every point is marked visible scores exactly 1.000. Flag agreement is
+therefore computed on its own, with kappa next to it: raw agreement
+looks high by itself whenever one flag value dominates the rest.
 
-| эталон \ моё | v=0 не размечена | v=1 не видна | v=2 видна |
+| GT \ mine | v=0 not annotated | v=1 not visible | v=2 visible |
 |---|---|---|---|
-| v=0 не размечена | 0 | 23 | 13 |
-| v=1 не видна | 8 | 25 | 19 |
-| v=2 видна | 8 | 39 | 482 |
+| v=0 not annotated | 0 | 23 | 13 |
+| v=1 not visible | 8 | 25 | 19 |
+| v=2 visible | 8 | 39 | 482 |
 
-![расхождение по флагу](reports/review/flag_by_joint.png)
+![flag disagreement by joint](reports/review/flag_by_joint.png)
 
-## Где промахивается рука
+## Where the hand misses
 
-Допуск PCK — одна сигма COCO для этого сустава на этом масштабе,
-то есть вклад точки в OKS не ниже exp(-1/2) = 0.607. Порог назван
-заранее и под результат не подбирался.
+The PCK tolerance is one COCO sigma for that joint at that scale, i.e.
+a contribution to OKS of no less than exp(-1/2) = 0.607. The threshold
+was fixed in advance and never tuned to the result.
 
-![PCK по суставам](reports/review/pck_by_joint.png)
+![PCK by joint](reports/review/pck_by_joint.png)
 
-| худшие суставы | PCK | точек | средний промах, px |
+| worst joints | PCK | points | mean offset, px |
 |---|---|---|---|
 | right_hip | 0.90 | 40 | 13.6 |
 | left_wrist | 0.91 | 33 | 11.1 |
@@ -62,102 +58,108 @@
 | left_ankle | 0.94 | 33 | 9.9 |
 | right_wrist | 0.94 | 35 | 12.3 |
 
-| размер человека | пар | OKS |
+| person size | pairs | OKS |
 |---|---|---|
-| мелкие | 11 | 0.895 |
-| средние | 22 | 0.902 |
-| крупные | 10 | 0.879 |
+| small | 11 | 0.895 |
+| medium | 22 | 0.902 |
+| large | 10 | 0.879 |
 
-## Разбор худших пар
+## The worst pairs
 
-Синий — эталон, оранжевый — моё. Точка закрашена, если помечена
-видимой, и пустая, если помечена невидимой.
+Blue is the ground truth, orange is mine. A point is filled when it
+is marked visible and hollow when it is marked not visible.
 
-### 000000551820.jpg · эталон #1247453
+### 000000551820.jpg - ground truth #1247453
 
 OKS 0.404
 
 ![000000551820_1247453](reports/review/01_000000551820_gt1247453.jpg)
 
-<!-- note:000000551820_1247453 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000233771.jpg · эталон #220854
+### 000000233771.jpg - ground truth #220854
 
 OKS 0.669
 
 ![000000233771_220854](reports/review/02_000000233771_gt220854.jpg)
 
-<!-- note:000000233771_220854 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000100624.jpg · эталон #500399
+### 000000100624.jpg - ground truth #500399
 
 OKS 0.774
 
 ![000000100624_500399](reports/review/03_000000100624_gt500399.jpg)
 
-<!-- note:000000100624_500399 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000023899.jpg · эталон #448028
+### 000000023899.jpg - ground truth #448028
 
 OKS 0.798
 
 ![000000023899_448028](reports/review/04_000000023899_gt448028.jpg)
 
-<!-- note:000000023899_448028 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000080340.jpg · эталон #542289
+### 000000080340.jpg - ground truth #542289
 
 OKS 0.822
 
 ![000000080340_542289](reports/review/05_000000080340_gt542289.jpg)
 
-<!-- note:000000080340_542289 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000132544.jpg · эталон #1676854
+### 000000132544.jpg - ground truth #1676854
 
 OKS 0.840
 
 ![000000132544_1676854](reports/review/06_000000132544_gt1676854.jpg)
 
-<!-- note:000000132544_1676854 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000551820.jpg · эталон #1248862
+### 000000551820.jpg - ground truth #1248862
 
 OKS 0.853
 
 ![000000551820_1248862](reports/review/07_000000551820_gt1248862.jpg)
 
-<!-- note:000000551820_1248862 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
-
-### 000000474078.jpg · эталон #1729803
+### 000000474078.jpg - ground truth #1729803
 
 OKS 0.865
 
 ![000000474078_1729803](reports/review/08_000000474078_gt1729803.jpg)
 
-<!-- note:000000474078_1729803 -->
-> **Что здесь произошло:** _заполнить_
-<!-- /note -->
+## Reproduce
 
-## Что дальше
+Python 3.10+ and Pillow; Pillow is needed for the rendering only, all
+metrics run on the standard library (the Hungarian algorithm included).
 
-- Инструкция и решения по спорным случаям — [annotation/GUIDELINES.md](annotation/GUIDELINES.md)
-- Полный отчёт — [reports/keypoint_report.md](reports/keypoint_report.md)
-- Долг по написанному не мной коду — [DEBT.md](DEBT.md)
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-README пересобирается `tools/build_readme.py`; комментарии между маркерами
-`<!-- note:… -->` и `<!-- /note -->` при пересборке сохраняются.
+# the four self-test cases with answers known in advance
+.venv/bin/python common/oks.py --selftest
+
+# ground truth (10 MB, not stored in the repository)
+.venv/bin/python tools/fetch_keypoints.py --out data/coco
+
+# sanity-check the export before computing anything
+.venv/bin/python tools/check_export.py \
+    --mine annotation/person_keypoints_default.json \
+    --selection data/subset/selection_keypoints.json
+
+# the numbers in this README
+.venv/bin/python annotation/keypoint_agreement.py \
+    --gt data/coco/person_keypoints_val2017.json \
+    --mine annotation/person_keypoints_default.json \
+    --selection data/subset/selection_keypoints.json \
+    --out reports/keypoint_metrics.json
+
+# the pictures above, then this README
+.venv/bin/python tools/render_skeletons.py \
+    --gt data/coco/person_keypoints_val2017.json \
+    --mine annotation/person_keypoints_default.json \
+    --selection data/subset/selection_keypoints.json \
+    --images data/subset/frames --out reports/review
+.venv/bin/python tools/build_readme.py --repo keypoint-annotation
+```
+
+The 14 frames and the selection manifest are committed, so the numbers
+can be reproduced without rebuilding the subset.
+
+## What else is here
+
+- Annotation guidelines and the disputed-case decisions -- [annotation/GUIDELINES.md](annotation/GUIDELINES.md)
+- Full report -- [reports/keypoint_report.md](reports/keypoint_report.md)
+- Code I did not write myself, and what I owe an explanation for -- [DEBT.md](DEBT.md)
+
+This README is generated by `tools/build_readme.py` from
+`reports/keypoint_metrics.json`; edit the report, not this file.

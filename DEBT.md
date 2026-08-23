@@ -1,16 +1,16 @@
-# Долг по написанному коду
+# Debt on code I did not write myself
 
-Пройти перед первым откликом. Что не объясняется за три минуты —
-переписать своими руками или убрать из резюме.
+To be cleared before the first job application. Anything I cannot explain in
+three minutes gets rewritten by hand or dropped from the CV.
 
-| Дата | Что написано | Файл | Что нужно уметь объяснить |
+| Date | What was written | File | What I must be able to explain |
 |---|---|---|---|
-| 2026-08-21 | чтение формата COCO Keypoints | `common/keypoints.py` | что означают v=0, v=1, v=2 и почему порядок 17 точек нельзя менять |
-| **2026-08-21** | **OKS** | `common/oks.py` | **спрашивают.** Зачем нормировка на площадь и зачем посуставная сигма; почему сдвиг на одну сигму даёт ровно exp(-1/2) |
-| **2026-08-21** | **сопоставление людей** | `common/oks.py` | **спрашивают.** Почему сопоставлять по OKS тем же, чем меряешь, — плохо, и что при этом происходит с худшими парами |
-| 2026-08-21 | PCK по суставам, каппа по флагу | `common/oks.py` | почему допуск задан в сигмах, а не в пикселях |
-| 2026-08-21 | сводные метрики и разбивки | `annotation/keypoint_agreement.py` | чем «свой без пары» отличается от «отброшен фильтром эталона» |
-| 2026-08-21 | загрузка, отбор, конфиг скелета, репетиция, отрисовка, README | `tools/` | ничего, это оснастка |
-| 2026-08-23 | два решения шага 2 в `reports/notes.md` | `reports/notes.md` | решения мои (порог 4000 px², зум на лицо и запястья), формулировки и подбор чисел — ассистент; уметь назвать потолок OKS по размерам и допуск 1σ по суставам |
-| 2026-08-23 | `GUIDELINES.md` версия 1, пять разделов | `annotation/GUIDELINES.md` | четыре решения мои (край кадра — не ставлю, скрытая точка — v=1 при оценке до сигмы, минимум 8 точек, порог 4000 px²), текст и числа-обоснования собраны ассистентом по ответам. Уметь объяснить, почему правило края противоположно A3 |
-| 2026-08-23 | разбор расхождений и текст отчёта | `reports/keypoint_report.md`, `annotation/GUIDELINES.md` v2 | решения мои: стороны не переразмечать, ухо по правилу COCO, границу occluded не чинить. Текст, числа и три диагностики (перестановка сторон на всех парах, близость к краю, промах на скрытых точках) — ассистент. Уметь объяснить, почему сопоставление по OKS прячет худшие пары |
+| 2026-08-21 | reading the COCO Keypoints format | `common/keypoints.py` | what v=0, v=1, v=2 mean and why the order of the 17 points cannot be changed |
+| **2026-08-21** | **OKS** | `common/oks.py` | **asked in interviews.** Why the normalisation by area and why a per-joint sigma; why an offset of exactly one sigma gives exp(-1/2) |
+| **2026-08-21** | **person matching** | `common/oks.py` | **asked in interviews.** Why matching on the same quantity you measure with is a bad idea, and what happens to the worst pairs when you do |
+| 2026-08-21 | per-joint PCK, kappa on the flag | `common/oks.py` | why the tolerance is expressed in sigmas rather than pixels |
+| 2026-08-21 | summary metrics and breakdowns | `annotation/keypoint_agreement.py` | how "mine without a match" differs from "dropped by the ground-truth filter" |
+| 2026-08-21 | download, frame selection, skeleton config, rehearsal, rendering, README | `tools/` | nothing, this is scaffolding |
+| 2026-08-23 | the two decisions on the price of a pixel | `reports/notes.md` | the decisions are mine (4000 px² threshold, zoom on face and wrists), the wording and the supporting numbers are not; I must be able to state the OKS ceiling by person size and the one-sigma tolerance by joint |
+| 2026-08-23 | `GUIDELINES.md` version 1, five sections | `annotation/GUIDELINES.md` | four decisions are mine (point beyond the border: do not place it; hidden point: v=1 when it can be estimated to within a sigma; minimum eight points; 4000 px² threshold). The text and the supporting numbers were assembled from my answers. I must be able to explain why the border rule here is the opposite of the tracking stage |
+| 2026-08-23 | disagreement analysis and the report text | `reports/keypoint_report.md`, `annotation/GUIDELINES.md` v2 | the decisions are mine: do not re-annotate the swapped-sides figure, adopt the COCO rule for ears, do not pretend the occluded boundary is fixable. The text, the numbers and three diagnostics (side swap tested across all pairs, distance to the image border, error on hidden points) are not. I must be able to explain why matching by OKS hides the worst pairs |

@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""Формат COCO Keypoints: эталон и экспорт CVAT читаются одним загрузчиком (P4d).
+"""COCO Keypoints format: ground truth and CVAT export share one loader.
 
-Одна аннотация человека — это 17 точек в жёстко заданном порядке, плоским
-списком из 51 числа: x1, y1, v1, x2, y2, v2, ... Порядок нельзя менять и
-нельзя выбирать свой: индекс 5 — это left_shoulder и ни что иное, а если
-в твоей разметке на этом месте окажется правое плечо, метрика посчитается
-без единой ошибки и выдаст мусор.
+A person annotation is 17 keypoints in a fixed order, stored as a flat list
+of 51 numbers: x1, y1, v1, x2, y2, v2, ... The order is not negotiable and
+cannot be redefined: index 5 is left_shoulder and nothing else. Put a right
+shoulder there and the metric will compute happily and return garbage.
 
-Флаг v принимает три значения и означает не «качество точки», а её статус:
+The v flag has three values, and it encodes status, not "point quality":
 
-    v=0  точка не размечена вовсе. Координаты в файле стоят нулевые
-         и в расчёте не участвуют.
-    v=1  точка размечена, но не видна: закрыта телом, другим человеком,
-         предметом. Координаты осмысленные — это догадка разметчика о том,
-         где сустав находится.
-    v=2  точка размечена и видна.
+    v=0  the point is not annotated at all. Coordinates in the file are
+         zeros and take no part in the computation.
+    v=1  the point is annotated but not visible: hidden by the body, by
+         another person, by an object. The coordinates are meaningful --
+         they are the annotator's estimate of where the joint is.
+    v=2  the point is annotated and visible.
 
-Экспорт CVAT (формат COCO Keypoints 1.0) кладёт файл с тем же именем,
-что у эталона — annotations/person_keypoints_<subset>.json — и с той же
-семантикой флага: outside -> 0, occluded -> 1, ничего -> 2
-(cvat/apps/dataset_manager/bindings.py). Поэтому загрузчик здесь один.
+A CVAT export (COCO Keypoints 1.0) writes a file with the same name as the
+ground truth -- annotations/person_keypoints_<subset>.json -- and with the
+same flag semantics: outside -> 0, occluded -> 1, nothing -> 2
+(cvat/apps/dataset_manager/bindings.py). Hence a single loader for both.
 
-Зависимостей нет.
+No dependencies.
 """
 
 import argparse
@@ -37,23 +36,23 @@ COCO_KEYPOINTS = [
     "left_knee", "right_knee", "left_ankle", "right_ankle",
 ]
 
-# Сигмы COCO: разброс, с которым люди размечают этот сустав повторно.
-# Это не настройка, а замер — см. докстроку oks.py.
+# COCO sigmas: the spread with which humans re-annotate a given joint.
+# These are a measurement, not a tuning knob -- see the oks.py docstring.
 SIGMAS = [
     0.026, 0.025, 0.025, 0.035, 0.035, 0.079, 0.079, 0.072, 0.072,
     0.062, 0.062, 0.107, 0.107, 0.087, 0.087, 0.089, 0.089,
 ]
 K = [2 * s for s in SIGMAS]
 
-# Рёбра скелета COCO, 19 штук, индексы точек с нуля.
+# COCO skeleton edges, 19 of them, zero-based keypoint indices.
 SKELETON = [
     (15, 13), (13, 11), (16, 14), (14, 12), (11, 12), (5, 11), (6, 12),
     (5, 6), (5, 7), (6, 8), (7, 9), (8, 10), (1, 2), (0, 1), (0, 2),
     (1, 3), (2, 4), (3, 5), (4, 6),
 ]
 
-# Пары «левое — правое». Нужны для контрольного случая с перестановкой сторон
-# и для разбора расхождений: путаница сторон — самая частая ошибка на скелете.
+# Left-right pairs. Used by the self-test case that swaps sides and by the
+# disagreement analysis: swapped sides are the most common skeleton mistake.
 LR_PAIRS = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)]
 
 ABSENT, HIDDEN, VISIBLE = 0, 1, 2
@@ -61,17 +60,17 @@ ABSENT, HIDDEN, VISIBLE = 0, 1, 2
 
 @dataclass
 class Person:
-    """Один размеченный человек: 17 точек плюс масштаб."""
+    """One annotated person: 17 keypoints plus the scale."""
 
-    image: str                              # имя файла кадра
-    ident: int                              # id аннотации в исходном файле
-    points: list[tuple[float, float, int]]  # ровно 17 штук, (x, y, v)
-    area: float                             # площадь сегментации — масштаб для OKS
+    image: str                              # frame file name
+    ident: int                              # annotation id in the source file
+    points: list[tuple[float, float, int]]  # exactly 17 of them, (x, y, v)
+    area: float                             # segmentation area -- the OKS scale
     bbox: tuple[float, float, float, float]  # x, y, w, h
 
     @property
     def labeled(self) -> int:
-        """Сколько точек размечено (v > 0). То же, что num_keypoints в COCO."""
+        """How many points are annotated (v > 0). Same as num_keypoints in COCO."""
         return sum(1 for _, _, v in self.points if v > ABSENT)
 
     @property
@@ -79,7 +78,7 @@ class Person:
         return sum(1 for _, _, v in self.points if v == VISIBLE)
 
     def kp_bbox(self) -> tuple[float, float, float, float]:
-        """Рамка по размеченным точкам. Нужна, когда bbox экспорта не доверяем."""
+        """Box around the annotated points, for when the exported bbox is not trusted."""
         xs = [x for x, _, v in self.points if v > ABSENT]
         ys = [y for _, y, v in self.points if v > ABSENT]
         if not xs:
@@ -92,9 +91,9 @@ class Person:
 
 
 def unflatten(flat: list[float]) -> list[tuple[float, float, int]]:
-    """51 число -> 17 троек. Единственное место, где знание о раскладке живёт."""
+    """51 numbers -> 17 triples. The only place that knows the layout."""
     if len(flat) != 51:
-        raise ValueError(f"ожидалось 51 число, пришло {len(flat)}")
+        raise ValueError(f"expected 51 numbers, got {len(flat)}")
     return [(float(flat[3 * i]), float(flat[3 * i + 1]), int(flat[3 * i + 2]))
             for i in range(17)]
 
@@ -109,15 +108,15 @@ def flatten(points: list[tuple[float, float, int]]) -> list[float]:
 def load_coco_keypoints(path: str | Path, images: set[str] | None = None,
                         min_kp: int = 0, min_area: float = 0.0
                         ) -> tuple[list[Person], dict[str, tuple[int, int]]]:
-    """Читает и эталон, и экспорт CVAT.
+    """Reads both the ground truth and the CVAT export.
 
-    images   — оставить только эти имена файлов (None: все).
-    min_kp   — минимум размеченных точек у человека.
-    min_area — минимум площади. У экспорта CVAT поля area может не быть,
-               тогда берётся площадь bbox: масштаб для OKS всё равно
-               считается по эталону, а здесь это только фильтр.
+    images   -- keep only these file names (None: all of them).
+    min_kp   -- minimum number of annotated points per person.
+    min_area -- minimum area. A CVAT export may carry no area field, in
+                which case the bbox area is used: the OKS scale always
+                comes from the ground truth, here this is only a filter.
 
-    Возвращает список людей и размеры кадров {имя: (ширина, высота)}.
+    Returns the list of people and the frame sizes {name: (width, height)}.
     """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     name_by_id = {img["id"]: img["file_name"] for img in data["images"]}
@@ -144,8 +143,8 @@ def load_coco_keypoints(path: str | Path, images: set[str] | None = None,
 
 def save_coco_keypoints(people: list[Person], sizes: dict[str, tuple[int, int]],
                         path: str | Path) -> None:
-    """Пишет файл в том же формате. Нужен, чтобы собрать подставную разметку
-    для репетиции расчёта до того, как появится настоящая."""
+    """Writes a file in the same format. Used to build a stand-in annotation
+    so the pipeline can be rehearsed before the real one exists."""
     names = sorted({p.image for p in people})
     ids = {name: i + 1 for i, name in enumerate(names)}
     doc = {
@@ -196,7 +195,7 @@ def flag_histogram(people: list[Person]) -> Counter:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Что лежит в файле COCO Keypoints")
+    ap = argparse.ArgumentParser(description="What is inside a COCO Keypoints file")
     ap.add_argument("path", type=Path)
     ap.add_argument("--min-kp", type=int, default=0)
     ap.add_argument("--min-area", type=float, default=0.0)
@@ -206,12 +205,12 @@ def main() -> int:
                                         min_area=args.min_area)
     hist = flag_histogram(people)
     total = sum(hist.values())
-    print(f"кадров {len({p.image for p in people})}, людей {len(people)}")
-    print(f"слотов точек {total}: "
+    print(f"frames {len({p.image for p in people})}, people {len(people)}")
+    print(f"keypoint slots {total}: "
           f"v=0 {hist[0]} ({hist[0] / total:.0%}), "
           f"v=1 {hist[1]} ({hist[1] / total:.0%}), "
           f"v=2 {hist[2]} ({hist[2] / total:.0%})")
-    print(f"размечено точек {hist[1] + hist[2]}")
+    print(f"annotated points {hist[1] + hist[2]}")
     return 0
 
 
