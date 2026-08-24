@@ -230,7 +230,7 @@ hand, and the two can only be separated where the convention has been measured
 
 The same method on other annotation types, each with its own agreement metric:
 
-- **Boxes** -- [detection-annotation-quality](https://github.com/daviddolya/detection-annotation-quality): 100 frames, kappa on classes 0.914, mean IoU 0.867.
+- **Boxes** -- [detection-annotation-agreement](https://github.com/daviddolya/detection-annotation-agreement): 100 frames, kappa on classes 0.914, mean IoU 0.867.
 - **Polygons** -- [polygon-annotation-agreement](https://github.com/daviddolya/polygon-annotation-agreement): 25 frames, mask IoU 0.840, Boundary IoU 0.676.
 - **Tracks** -- [tracking-annotation-agreement](https://github.com/daviddolya/tracking-annotation-agreement): MOT17-09, IDF1 0.896, 2 identity switches, and an analysis of amodality beyond the image border.
 

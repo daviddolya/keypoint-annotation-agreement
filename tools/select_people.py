@@ -27,7 +27,7 @@ the annotation, not before.
 
     python3 select_people.py --ann data/coco/person_keypoints_val2017.json \
         --out data/subset --count 14 \
-        --exclude ../detection-annotation-quality/data/subset/selection.json
+        --exclude ../detection-annotation-agreement/data/subset/selection.json
 """
 
 import argparse
