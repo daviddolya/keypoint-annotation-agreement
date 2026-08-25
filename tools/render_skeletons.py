@@ -34,33 +34,13 @@ from keypoints import (ABSENT, COCO_KEYPOINTS, SKELETON, VISIBLE,  # noqa: E402
                        Person, load_coco_keypoints)
 from oks import evaluate, oks  # noqa: E402
 
-REF_COLOR = (60, 130, 246)
-MY_COLOR = (249, 115, 22)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from chrome import (MINE_COLOR as MY_COLOR, REF_COLOR,  # noqa: E402
+                    load_font, with_chrome)
+
 BAD = (220, 38, 38)
 OK = (34, 160, 90)
-
-FONT_CANDIDATES = [
-    "/usr/share/fonts/TTF/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/Library/Fonts/Arial.ttf",
-    "C:/Windows/Fonts/arial.ttf",
-]
-
-
-def load_font(size: int) -> tuple[object, bool]:
-    """Returns a TrueType font when one is available, and a flag saying so.
-
-    The bitmap font bundled with PIL cannot be scaled, so the captions come
-    out tiny; a real font is preferred whenever the system has one."""
-    for path in FONT_CANDIDATES:
-        if Path(path).exists():
-            try:
-                return ImageFont.truetype(path, size), True
-            except OSError:
-                continue
-    return ImageFont.load_default(), False
 
 
 def draw_person(d: ImageDraw.ImageDraw, p: Person, color, scale: float,
@@ -104,14 +84,11 @@ def render_pair(image_path: Path, gt: Person, mine: Person, value: float,
     crop = crop.resize((max(1, int(crop.width * scale)),
                         max(1, int(crop.height * scale))))
 
-    canvas = Image.new("RGB", (crop.width, crop.height + 28), (255, 255, 255))
-    canvas.paste(crop, (0, 28))
-    d = ImageDraw.Draw(canvas)
-    draw_person(d, gt, REF_COLOR, scale, x0, y0 - 28 / scale)
-    draw_person(d, mine, MY_COLOR, scale, x0, y0 - 28 / scale)
-    caption = (f"OKS {value:.3f}  |  GT blue, mine orange  |  "
-               f"hollow = not visible")
-    d.text((6, 6), caption, fill=(20, 20, 20), font=font)
+    facts = f"OKS {value:.3f} · hollow = marked not visible"
+    footer = f"{image_path.name} · reference #{gt.ident}"
+    canvas, d, top, _ = with_chrome(crop, facts=facts, footer=footer, font=font)
+    draw_person(d, gt, REF_COLOR, scale, x0, y0 - top / scale)
+    draw_person(d, mine, MY_COLOR, scale, x0, y0 - top / scale)
     canvas.save(out, quality=92)
 
 
@@ -193,9 +170,7 @@ def main() -> int:
     res = evaluate(gt, mine, "bbox", 0.3, args.pck_mult)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    font, truetype = load_font(15)
-    if not truetype:
-        print("no TrueType font found: captions will use the small bitmap font")
+    font = load_font(15)
 
     scored = [(g, m, oks(g, m)) for g, m in res["pairs"]]
     scored = sorted([t for t in scored if t[2] is not None], key=lambda t: t[2])

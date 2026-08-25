@@ -79,7 +79,8 @@ was fixed in advance and never tuned to the result.
 
 ## The worst pairs
 
-Blue is the ground truth, orange is mine. A point is filled when it
+Every picture carries its own legend: a blue swatch for the reference, an orange one for mine, the numbers of the case beside them and the frame name underneath.
+A point is filled when it
 is marked visible and hollow when it is marked not visible.
 
 ### 000000551820.jpg - ground truth #1247453
